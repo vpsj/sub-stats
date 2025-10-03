@@ -1,102 +1,227 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>r/IndianRailways Subscribers</title>
+  <meta charset="UTF-8" />
+  <title>r/IndianRailways — Subscribers</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; background:#111; color:#fff; text-align:center; padding:20px; }
-    h1 { font-size: 2rem; }
-    .count { font-size: 4rem; font-weight:bold; margin:20px 0; }
-    .growth { margin: 10px 0; }
-    button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; }
-    .timestamp { margin-top: 10px; font-size:0.9rem; color:#aaa; }
+    :root{
+      --bg:#0f1113;
+      --panel:#111214;
+      --muted:#bbb;
+      --accent:#4CAF50;
+      --card-radius:12px;
+      --pad:16px;
+    }
+    body{
+      margin:0;
+      font-family:Inter,Arial,Helvetica,sans-serif;
+      background:linear-gradient(180deg, #0b0b0d 0%, #121214 100%);
+      color:#fff;
+      padding:20px;
+      -webkit-font-smoothing:antialiased;
+    }
+    .container{ max-width:980px; margin:0 auto; }
+    header { text-align:center; margin-bottom:8px; }
+    h1 { margin:6px 0; font-size:1.6rem; font-weight:600; }
+    #count { font-size:3.8rem; font-weight:800; color:var(--accent); letter-spacing:0.02em; }
+    .card {
+      background: rgba(255,255,255,0.02);
+      border-radius:var(--card-radius);
+      padding:var(--pad);
+      margin:12px 0;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+    }
+    .stats { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+    .stat {
+      min-width:180px;
+      background:rgba(255,255,255,0.02);
+      padding:12px;
+      border-radius:10px;
+      text-align:center;
+    }
+    .stat b { display:block; font-size:0.95rem; margin-bottom:6px; color:#fff; }
+    .stat .val { font-size:1.25rem; font-weight:700; color:var(--accent); }
+    .stat .prev { color:var(--muted); font-size:0.85rem; margin-top:6px; display:block; }
+    #lastUpdated { color:var(--muted); text-align:center; margin-top:8px; font-size:0.9rem; }
+
+    /* tabs */
+    .tabs { display:flex; gap:8px; justify-content:center; margin-top:18px; flex-wrap:wrap; }
+    .tab-btn { background:#222; color:#ddd; border-radius:8px; padding:8px 12px; border:none; cursor:pointer; }
+    .tab-btn.active { background:var(--accent); color:#021805; font-weight:700; }
+
+    canvas { max-width:100%; margin-top:12px; display:block; }
+
+    /* responsive */
+    @media (max-width:640px){
+      #count { font-size:2.4rem; }
+      .stat { min-width:140px; }
+      h1 { font-size:1.2rem; }
+    }
+
+    button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; display:block; margin-left:auto; margin-right:auto; }
   </style>
 </head>
 <body>
-  <h1>r/IndianRailways Subscribers</h1>
-  <div class="count" id="subCount">—</div>
-  <div class="growth">
-    Growth Today: <span id="growthDay">0</span> from <span id="prevDay">—</span><br>
-    Growth This Week: <span id="growthWeek">0</span> from <span id="prevWeek">—</span><br>
-    Growth This Month: <span id="growthMonth">0</span> from <span id="prevMonth">—</span><br>
-    Growth This Year: <span id="growthYear">0</span> from <span id="prevYear">—</span>
-  </div>
-  <div class="timestamp" id="lastUpdated">Last updated: — (IST)</div>
+<div class="container">
+  <header>
+    <h1>r/IndianRailways Subscribers</h1>
+    <div id="count">—</div>
+  </header>
+
   <button onclick="updateSubs()">Update Now</button>
 
-  <script>
-    const DATA_URL = 'https://raw.githubusercontent.com/vpsj/sub-stats/main/data.json';
-    const SUBREDDIT = 'indianrailways';
+  <div class="card">
+    <div class="stats">
+      <div class="stat">
+        <b>Growth Today</b>
+        <div class="val" id="dailyGrowth">0</div>
+        <div class="prev" id="dailyPrev">from —</div>
+      </div>
+      <div class="stat">
+        <b>Growth This Week</b>
+        <div class="val" id="weeklyGrowth">0</div>
+        <div class="prev" id="weeklyPrev">from —</div>
+      </div>
+      <div class="stat">
+        <b>Growth This Month</b>
+        <div class="val" id="monthlyGrowth">0</div>
+        <div class="prev" id="monthlyPrev">from —</div>
+      </div>
+      <div class="stat">
+        <b>Growth This Year</b>
+        <div class="val" id="yearlyGrowth">0</div>
+        <div class="prev" id="yearlyPrev">from —</div>
+      </div>
+    </div>
+    <div id="lastUpdated">Last updated: — (IST)</div>
+  </div>
 
-    async function fetchLiveCount() {
-      try {
-        const res = await fetch(`https://www.reddit.com/r/${SUBREDDIT}/about.json?raw_json=1`, {cache:'no-store'});
-        const json = await res.json();
-        return json.data.subscribers || 0;
-      } catch(e) {
-        console.warn('Live Reddit fetch failed', e);
-        return null;
-      }
-    }
+  <div class="card">
+    <div style="text-align:center"><small class="muted">Graph range</small></div>
+    <div class="tabs" role="tablist" aria-label="Ranges">
+      <button class="tab-btn active" data-range="24h">24 Hours</button>
+      <button class="tab-btn" data-range="7d">7 Days</button>
+      <button class="tab-btn" data-range="30d">30 Days</button>
+      <button class="tab-btn" data-range="12m">12 Months</button>
+    </div>
+    <canvas id="growthChart" height="160"></canvas>
+  </div>
 
-    async function updateSubs() {
-      let logs = [];
-      let liveCount = null;
+  <div style="text-align:center; color:var(--muted); margin-top:10px;">
+    Data stored in <code>data.json</code> (updated hourly by GitHub Actions). Live fallback always works.
+  </div>
+</div>
 
-      // Try fetching data.json first
-      try {
-        const res = await fetch(DATA_URL+'?t='+Date.now(), {cache:'no-store'});
-        logs = (await res.json()).logs || [];
-      } catch(e) {
-        console.warn('Failed to fetch GitHub data.json, falling back to live Reddit', e);
-        liveCount = await fetchLiveCount();
-      }
+<script>
+const DATA_URL = 'data.json';
+const SUBREDDIT = 'indianrailways';
+const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+let logs = [];
+let chart = null;
+let currentRange = '24h';
 
-      // Determine latest subscriber count
-      let latestCount = liveCount || (logs.length ? logs[logs.length-1].count : '—');
-      document.getElementById('subCount').textContent = latestCount;
+function asNumber(n){ return +n; }
+function toIST(ms){ return new Date(ms + IST_OFFSET); }
 
-      // Calculate growth if logs exist
-      if (logs.length) {
-        const now = Date.now();
-        const dayMs = 24*60*60*1000;
-        const weekMs = 7*dayMs;
-        const monthMs = 30*dayMs;
-        const yearMs = 365*dayMs;
+async function fetchLiveCount(){
+  try {
+    const res = await fetch(`https://www.reddit.com/r/${SUBREDDIT}/about.json?raw_json=1`, {cache:'no-store'});
+    const json = await res.json();
+    return json.data.subscribers || 0;
+  } catch(e) { console.warn('Live fetch failed', e); return null; }
+}
 
-        function prevCount(delta) {
-          for (let i = logs.length-1; i>=0; i--) {
-            if ((now - logs[i].time) >= delta) return logs[i].count;
-          }
-          return logs[0].count;
-        }
+async function fetchDataJson(){
+  try{
+    const res = await fetch(DATA_URL+'?t='+Date.now(), {cache:'no-store'});
+    if(!res.ok) throw new Error(res.status);
+    const json = await res.json();
+    logs = (json.logs || []).map(l=>({time:asNumber(l.time),count:asNumber(l.count)}));
+    logs.sort((a,b)=>a.time-b.time);
+    localStorage.setItem('sharedLogs', JSON.stringify(logs));
+  } catch(e){
+    console.warn('Failed to fetch data.json, using localStorage fallback', e);
+    const cached = localStorage.getItem('sharedLogs');
+    if(cached) logs = JSON.parse(cached);
+  }
+}
 
-        const pd = prevCount(dayMs);
-        const pw = prevCount(weekMs);
-        const pm = prevCount(monthMs);
-        const py = prevCount(yearMs);
+function getLatest(){ return logs.length ? logs[logs.length-1] : null; }
+function baseline(startMs){
+  for(let i=logs.length-1;i>=0;i--){
+    if(logs[i].time<=startMs) return logs[i].count;
+  }
+  return logs.length ? logs[0].count : 0;
+}
 
-        document.getElementById('growthDay').textContent = latestCount - pd;
-        document.getElementById('prevDay').textContent = pd;
-        document.getElementById('growthWeek').textContent = latestCount - pw;
-        document.getElementById('prevWeek').textContent = pw;
-        document.getElementById('growthMonth').textContent = latestCount - pm;
-        document.getElementById('prevMonth').textContent = pm;
-        document.getElementById('growthYear').textContent = latestCount - py;
-        document.getElementById('prevYear').textContent = py;
-      }
+async function updateSubs(){
+  await fetchDataJson();
+  let liveCount = await fetchLiveCount();
+  const latestLog = getLatest();
+  const latestCount = liveCount || (latestLog ? latestLog.count : 0);
+  document.getElementById('count').textContent = latestCount.toLocaleString();
 
-      // Show last updated IST time
-      const d = new Date();
-      const utcTime = d.getTime() + d.getTimezoneOffset()*60*1000; // UTC in ms
-      const istTime = new Date(utcTime + 5.5*60*60*1000); // add 5.5 hours for IST
-      document.getElementById('lastUpdated').textContent = 'Last updated: ' + istTime.toLocaleString('en-IN') + ' (IST)';
-    }
+  const now = Date.now();
+  const bDay = new Date(now + IST_OFFSET); bDay.setHours(0,0,0,0);
+  const bWeek = new Date(bDay); bWeek.setDate(bDay.getDate() - ((bDay.getDay()+6)%7));
+  const bMonth = new Date(bDay.getFullYear(), bDay.getMonth(),1);
+  const bYear = new Date(bDay.getFullYear(),0,1);
 
-    // Auto-update every hour
-    updateSubs();
-    setInterval(updateSubs, 60*60*1000);
-  </script>
+  const baseDay = baseline(bDay.getTime());
+  const baseWeek = baseline(bWeek.getTime());
+  const baseMonth = baseline(bMonth.getTime());
+  const baseYear = baseline(bYear.getTime());
+
+  document.getElementById('dailyGrowth').textContent = ((latestCount-baseDay)>=0?'+':'')+(latestCount-baseDay).toLocaleString();
+  document.getElementById('dailyPrev').textContent = 'from '+baseDay.toLocaleString();
+  document.getElementById('weeklyGrowth').textContent = ((latestCount-baseWeek)>=0?'+':'')+(latestCount-baseWeek).toLocaleString();
+  document.getElementById('weeklyPrev').textContent = 'from '+baseWeek.toLocaleString();
+  document.getElementById('monthlyGrowth').textContent = ((latestCount-baseMonth)>=0?'+':'')+(latestCount-baseMonth).toLocaleString();
+  document.getElementById('monthlyPrev').textContent = 'from '+baseMonth.toLocaleString();
+  document.getElementById('yearlyGrowth').textContent = ((latestCount-baseYear)>=0?'+':'')+(latestCount-baseYear).toLocaleString();
+  document.getElementById('yearlyPrev').textContent = 'from '+baseYear.toLocaleString();
+
+  // last updated
+  const istTime = new Date(now + IST_OFFSET);
+  document.getElementById('lastUpdated').textContent = 'Last updated: '+istTime.toLocaleString('en-IN')+' (IST)';
+
+  renderChart();
+}
+
+// Graph
+function renderChart(){
+  const ctx = document.getElementById('growthChart').getContext('2d');
+  if(!logs.length) return;
+
+  const rangeMs = {'24h':24*60*60*1000,'7d':7*24*60*60*1000,'30d':30*24*60*60*1000,'12m':365*24*60*60*1000}[currentRange];
+  const now = Date.now();
+  const filtered = logs.filter(l => l.time >= now-rangeMs);
+  const labels = filtered.map(l => toIST(l.time).toLocaleString('en-IN',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}));
+  const data = filtered.map(l => l.count);
+
+  if(chart) chart.destroy();
+  chart = new Chart(ctx,{
+    type:'line',
+    data:{ labels, datasets:[{label:'Subscribers', data, borderColor:'#4CAF50', backgroundColor:'rgba(76,175,80,0.2)', tension:0.3}] },
+    options:{ responsive:true, maintainAspectRatio:false, scales:{x:{display:true},y:{display:true}} }
+  });
+}
+
+// Tabs
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    currentRange = btn.dataset.range;
+    renderChart();
+  });
+});
+
+// init
+updateSubs();
+setInterval(updateSubs,60*60*1000); // auto-update hourly
+</script>
 </body>
 </html>
