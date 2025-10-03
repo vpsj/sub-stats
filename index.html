@@ -87,10 +87,10 @@
         document.getElementById('prevYear').textContent = py;
       }
 
-      // Show last updated time
-      const istOffset = 5.5*60; // IST offset in minutes
+      // Show last updated IST time
       const d = new Date();
-      const istTime = new Date(d.getTime() + istOffset*60*1000 - d.getTimezoneOffset()*60*1000);
+      const utcTime = d.getTime() + d.getTimezoneOffset()*60*1000; // UTC in ms
+      const istTime = new Date(utcTime + 5.5*60*60*1000); // add 5.5 hours for IST
       document.getElementById('lastUpdated').textContent = 'Last updated: ' + istTime.toLocaleString('en-IN') + ' (IST)';
     }
 
