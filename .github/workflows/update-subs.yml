@@ -1,8 +1,8 @@
 name: Hourly subreddit subscriber logger
 
 on:
-  schedule:
-    - cron: '0 * * * *' # every hour at minute 0 (UTC)
+  # schedule:
+  #  - cron: '0 * * * *' # every hour at minute 0 (UTC)
   workflow_dispatch: {}  # manual trigger
 
 jobs:
