@@ -1,58 +1,395 @@
-name: Hourly subreddit subscriber logger
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>r/IndianRailways — Subscribers</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root{
+      --bg:#0f1113;
+      --panel:#111214;
+      --muted:#bbb;
+      --accent:#4CAF50;
+      --card-radius:12px;
+      --pad:16px;
+    }
+    body{
+      margin:0;
+      font-family:Inter,Arial,Helvetica,sans-serif;
+      background:linear-gradient(180deg, #0b0b0d 0%, #121214 100%);
+      color:#fff;
+      padding:20px;
+      -webkit-font-smoothing:antialiased;
+    }
+    .container{
+      max-width:980px;
+      margin:0 auto;
+    }
+    header { text-align:center; margin-bottom:8px; }
+    h1 { margin:6px 0; font-size:1.6rem; font-weight:600; }
+    #count { font-size:3.8rem; font-weight:800; color:var(--accent); letter-spacing:0.02em; }
+    .top-row { display:flex; gap:12px; align-items:center; justify-content:center; flex-wrap:wrap; margin:12px 0; }
+    button { background:var(--accent); color:#fff; border:none; padding:10px 14px; border-radius:10px; font-weight:600; cursor:pointer; }
+    button.secondary { background:#222; color:#ddd; }
+    .card {
+      background: rgba(255,255,255,0.02);
+      border-radius:var(--card-radius);
+      padding:var(--pad);
+      margin:12px 0;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+    }
+    .stats { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+    .stat {
+      min-width:180px;
+      background:rgba(255,255,255,0.02);
+      padding:12px;
+      border-radius:10px;
+      text-align:center;
+    }
+    .stat b { display:block; font-size:0.95rem; margin-bottom:6px; color:#fff; }
+    .stat .val { font-size:1.25rem; font-weight:700; color:var(--accent); }
+    .stat .prev { color:var(--muted); font-size:0.85rem; margin-top:6px; display:block; }
+    #lastUpdated { color:var(--muted); text-align:center; margin-top:8px; font-size:0.9rem; }
 
-on:
-  schedule:
-    - cron: '0 * * * *'   # every hour at minute 0 (UTC)
-  workflow_dispatch: {}   # manual trigger
+    /* tabs */
+    .tabs { display:flex; gap:8px; justify-content:center; margin-top:18px; flex-wrap:wrap; }
+    .tab-btn { background:#222; color:#ddd; border-radius:8px; padding:8px 12px; border:none; cursor:pointer; }
+    .tab-btn.active { background:var(--accent); color:#021805; font-weight:700; }
 
-jobs:
-  update-subs:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    canvas { max-width:100%; margin-top:12px; display:block; }
 
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
+    /* responsive */
+    @media (max-width:640px){
+      #count { font-size:2.4rem; }
+      .stat { min-width:140px; }
+      h1 { font-size:1.2rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>r/IndianRailways Subscribers</h1>
+      <div id="count">—</div>
+      <div class="top-row">
+        <button id="manualRefresh">Refresh (live)</button>
+        <button class="secondary" id="forceFetch">Fetch shared history</button>
+      </div>
+    </header>
 
-      - name: Fetch subreddit subscriber count
-        id: fetch
-        run: |
-          SUB="indianrailways"
-          echo "Fetching https://www.reddit.com/r/${SUB}/about.json"
-          COUNT=$(curl -s -A "github-actions" "https://www.reddit.com/r/${SUB}/about.json" | jq '.data.subscribers')
-          if [ -z "$COUNT" ]; then
-            echo "count=0" >> $GITHUB_OUTPUT
-          else
-            echo "count=$COUNT" >> $GITHUB_OUTPUT
-          fi
+    <div class="card">
+      <div class="stats">
+        <div class="stat">
+          <b>Growth Today</b>
+          <div class="val" id="dailyGrowth">0</div>
+          <div class="prev" id="dailyPrev">from —</div>
+        </div>
+        <div class="stat">
+          <b>Growth This Week</b>
+          <div class="val" id="weeklyGrowth">0</div>
+          <div class="prev" id="weeklyPrev">from —</div>
+        </div>
+        <div class="stat">
+          <b>Growth This Month</b>
+          <div class="val" id="monthlyGrowth">0</div>
+          <div class="prev" id="monthlyPrev">from —</div>
+        </div>
+        <div class="stat">
+          <b>Growth This Year</b>
+          <div class="val" id="yearlyGrowth">0</div>
+          <div class="prev" id="yearlyPrev">from —</div>
+        </div>
+      </div>
+      <div id="lastUpdated">Last updated: — (IST)</div>
+    </div>
 
-      - name: Ensure data.json exists
-        run: |
-          if [ ! -f data.json ]; then
-            echo '{"logs": []}' > data.json
-          fi
+    <div class="card">
+      <div style="text-align:center"><small class="muted">Graph range</small></div>
+      <div class="tabs" role="tablist" aria-label="Ranges">
+        <button class="tab-btn active" data-range="24h">24 Hours</button>
+        <button class="tab-btn" data-range="7d">7 Days</button>
+        <button class="tab-btn" data-range="30d">30 Days</button>
+        <button class="tab-btn" data-range="12m">12 Months</button>
+      </div>
+      <canvas id="growthChart" height="160"></canvas>
+    </div>
 
-      - name: Append new entry to data.json (milliseconds)
-        run: |
-          NOW_MS=$(($(date +%s) * 1000))
-          COUNT=${{ steps.fetch.outputs.count }}
-          echo "Now (ms): $NOW_MS  Count: $COUNT"
-          LAST_TIME=$(jq -r '.logs | last?.time // 0' data.json)
-          if [ "$LAST_TIME" -lt "$NOW_MS" ]; then
-            jq --arg time "$NOW_MS" --argjson count "$COUNT" '.logs += [{"time": ($time|tonumber), "count": $count}]' data.json > data.tmp && mv data.tmp data.json
-          else
-            echo "Latest log already up-to-date. Skipping append."
-          fi
-          # Trim to last 10000 entries
-          jq '.logs |= (sort_by(.time) | unique_by(.time) | reverse | .[0:10000] | reverse)' data.json > data.tmp && mv data.tmp data.json
+    <div style="text-align:center; color:var(--muted); margin-top:10px;">
+      Data stored in <code>data.json</code> (updated hourly by GitHub Actions).
+    </div>
+  </div>
 
-      - name: Commit & push data.json
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data.json
-          git commit -m "Update subscriber log: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" || echo "No changes to commit"
-          git push
+  <script>
+    // === CONFIG ===
+    const DATA_URL = 'data.json'; // recommended: keep index.html and data.json in repo root and use GitHub Pages -> relative path works
+    // alternate: use raw GitHub URL:
+    // const DATA_URL = 'https://raw.githubusercontent.com/<USERNAME>/<REPO>/main/data.json';
+
+    const SUBREDDIT = 'indianrailways'; // for manual refresh
+    const REDDIT_ABOUT = `https://www.reddit.com/r/${SUBREDDIT}/about.json`;
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000; // ms
+
+    let logs = []; // array of {time: ms, count: number}
+    let chart = null;
+    let currentRange = '24h';
+
+    // --- Utilities ---
+    function asNumber(n){ return (typeof n === 'string')? parseInt(n,10) : +n; }
+
+    function toISTDateObjFromUTCms(ms){
+      // returns a Date object for the UTC ms shifted to IST local fields:
+      return new Date(ms + IST_OFFSET);
+    }
+
+    function startOfDayIST_ms(nowMs){
+      const ist = new Date(nowMs + IST_OFFSET);
+      const y = ist.getUTCFullYear(), m = ist.getUTCMonth(), d = ist.getUTCDate();
+      // Date.UTC returns epoch for 00:00:00Z of that date; subtract IST_OFFSET to get UTC ms for IST midnight
+      return Date.UTC(y, m, d) - IST_OFFSET;
+    }
+
+    function startOfWeekIST_ms(nowMs){
+      // ISO-like Monday start
+      const ist = new Date(nowMs + IST_OFFSET);
+      const day = ist.getUTCDay(); // 0 = Sun
+      const daysSinceMonday = (day + 6) % 7; // 0->Mon
+      return startOfDayIST_ms(nowMs) - daysSinceMonday * 24*3600*1000;
+    }
+
+    function startOfMonthIST_ms(nowMs){
+      const ist = new Date(nowMs + IST_OFFSET);
+      const y = ist.getUTCFullYear(), m = ist.getUTCMonth();
+      return Date.UTC(y, m, 1) - IST_OFFSET;
+    }
+
+    function startOfYearIST_ms(nowMs){
+      const ist = new Date(nowMs + IST_OFFSET);
+      const y = ist.getUTCFullYear();
+      return Date.UTC(y, 0, 1) - IST_OFFSET;
+    }
+
+    function formatIST(ms, opts){
+      return new Intl.DateTimeFormat('en-IN', Object.assign({ timeZone: 'Asia/Kolkata' }, opts)).format(new Date(ms));
+    }
+
+    // --- Load shared data.json from GitHub Pages / raw ---
+    async function fetchSharedData(){
+      try {
+        const res = await fetch(DATA_URL + '?t=' + Date.now(), { cache: 'no-store' });
+        if(!res.ok) throw new Error('Failed fetching shared data.json: ' + res.status);
+        const json = await res.json();
+        let got = json.logs || [];
+        // convert seconds -> ms if necessary (older file)
+        if(got.length && got[0].time && got[0].time < 1e12) {
+          got = got.map(x => ({ time: x.time * 1000, count: asNumber(x.count) }));
+        } else {
+          got = got.map(x => ({ time: asNumber(x.time), count: asNumber(x.count) }));
+        }
+        // sort ascending
+        got.sort((a,b) => a.time - b.time);
+        logs = got;
+        // cache locally
+        localStorage.setItem('sharedLogs', JSON.stringify(logs));
+        return logs;
+      } catch (err) {
+        console.warn('Failed to fetch shared data:', err);
+        // try local cache fallback
+        const cached = localStorage.getItem('sharedLogs');
+        if (cached) {
+          try { logs = JSON.parse(cached); return logs; } catch(e){}
+        }
+        return null;
+      }
+    }
+
+    function saveLocalLogs(){
+      try { localStorage.setItem('sharedLogs', JSON.stringify(logs)); } catch(e) {}
+    }
+
+    // --- Baselines & Render ---
+    function getLatest(){
+      if (!logs.length) return null;
+      return logs[logs.length - 1];
+    }
+
+    function baselineForStart(startMs){
+      if(!logs || !logs.length) return null;
+      // find last log <= startMs
+      for(let i = logs.length - 1; i >= 0; --i){
+        if (logs[i].time <= startMs) return logs[i].count;
+      }
+      // fallback earliest
+      return logs[0].count;
+    }
+
+    function computeAndRenderStats(){
+      const latest = getLatest();
+      if(!latest){
+        document.getElementById('count').innerText = '—';
+        document.getElementById('lastUpdated').innerText = 'Last updated: — (IST)';
+        return;
+      }
+      document.getElementById('count').innerText = latest.count.toLocaleString();
+
+      const nowMs = Date.now();
+
+      const dayStart = startOfDayIST_ms(nowMs);
+      const weekStart = startOfWeekIST_ms(nowMs);
+      const monthStart = startOfMonthIST_ms(nowMs);
+      const yearStart = startOfYearIST_ms(nowMs);
+
+      const baseDay = baselineForStart(dayStart);
+      const baseWeek = baselineForStart(weekStart);
+      const baseMonth = baselineForStart(monthStart);
+      const baseYear = baselineForStart(yearStart);
+
+      const dg = latest.count - baseDay;
+      const wg = latest.count - baseWeek;
+      const mg = latest.count - baseMonth;
+      const yg = latest.count - baseYear;
+
+      document.getElementById('dailyGrowth').innerText = (dg >= 0 ? '+' : '') + dg.toLocaleString();
+      document.getElementById('weeklyGrowth').innerText = (wg >= 0 ? '+' : '') + wg.toLocaleString();
+      document.getElementById('monthlyGrowth').innerText = (mg >= 0 ? '+' : '') + mg.toLocaleString();
+      document.getElementById('yearlyGrowth').innerText = (yg >= 0 ? '+' : '') + yg.toLocaleString();
+
+      document.getElementById('dailyPrev').innerText = 'from ' + (baseDay !== null ? baseDay.toLocaleString() : '—');
+      document.getElementById('weeklyPrev').innerText = 'from ' + (baseWeek !== null ? baseWeek.toLocaleString() : '—');
+      document.getElementById('monthlyPrev').innerText = 'from ' + (baseMonth !== null ? baseMonth.toLocaleString() : '—');
+      document.getElementById('yearlyPrev').innerText = 'from ' + (baseYear !== null ? baseYear.toLocaleString() : '—');
+
+      document.getElementById('lastUpdated').innerText = 'Last updated: ' + formatIST(latest.time, { dateStyle:'medium', timeStyle:'short' }) + ' (IST)';
+    }
+
+    // --- Chart ---
+    function formatLabelForRange(ms, range){
+      if(range === '24h'){
+        return formatIST(ms, { hour:'2-digit', minute:'2-digit' });
+      } else if(range === '7d' || range === '30d'){
+        return formatIST(ms, { month:'short', day:'numeric', hour:'2-digit' });
+      } else {
+        return formatIST(ms, { month:'short', year:'numeric' });
+      }
+    }
+
+    function renderChart(range){
+      currentRange = range;
+      if(!logs.length){
+        if(chart){ chart.destroy(); chart = null; }
+        return;
+      }
+      const now = Date.now();
+      let cutoff;
+      if(range === '24h') cutoff = now - 24*3600*1000;
+      else if(range === '7d') cutoff = now - 7*24*3600*1000;
+      else if(range === '30d') cutoff = now - 30*24*3600*1000;
+      else cutoff = now - 365*24*3600*1000;
+
+      let filtered = logs.filter(l => l.time >= cutoff);
+      // ensure at least two points: if none exist, use last two entries
+      if(filtered.length === 0){
+        filtered = logs.slice(-24);
+      }
+
+      const labels = filtered.map(l => formatLabelForRange(l.time, range));
+      const values = filtered.map(l => l.count);
+
+      if(chart) chart.destroy();
+      const ctx = document.getElementById('growthChart').getContext('2d');
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Subscribers',
+            data: values,
+            fill: true,
+            tension: 0.25,
+            borderWidth: 2,
+            borderColor: '#4CAF50',
+            backgroundColor: 'rgba(76,175,80,0.12)',
+            pointRadius: 0,
+            pointHoverRadius: 5
+          }]
+        },
+        options: {
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: function(ctx){
+                  return ctx.raw.toLocaleString() + ' subscribers';
+                }
+              }
+            }
+          },
+          scales: {
+            x: { ticks: { color:'#bbb' } },
+            y: { ticks: { color:'#bbb' } }
+          }
+        }
+      });
+    }
+
+    // --- Manual live refresh (does NOT push to GitHub) ---
+    async function manualRefresh(){
+      try {
+        const res = await fetch(REDDIT_ABOUT, { headers: { 'User-Agent': 'subscribers-logger/1.0' } });
+        if(!res.ok) throw new Error('reddit returned ' + res.status);
+        const j = await res.json();
+        const live = asNumber(j.data.subscribers);
+        const nowMs = Date.now();
+        // show instantly
+        document.getElementById('count').innerText = live.toLocaleString();
+        document.getElementById('lastUpdated').innerText = 'Last updated: ' + formatIST(nowMs, { dateStyle:'medium', timeStyle:'short' }) + ' (IST, live)';
+        // temporarily render growth relative to shared baseline (do not append to shared logs)
+        const lastShared = getLatest();
+        if(lastShared){
+          const delta = live - lastShared.count;
+          document.getElementById('dailyGrowth').innerText = (delta >= 0 ? '+' : '') + delta.toLocaleString() + ' (live diff)';
+        }
+        // also add a temp point to chart (so you can visualize live value)
+        const tempLogs = logs.concat([{ time: nowMs, count: live }]);
+        const prevLogs = logs;
+        logs = tempLogs;
+        renderChart(currentRange);
+        // revert logs to shared after small delay (or keep in memory). We'll revert so graph reflects authoritative data.
+        setTimeout(()=>{ logs = prevLogs; renderChart(currentRange); computeAndRenderStats(); }, 1200);
+      } catch (err) {
+        alert('Live fetch failed: ' + err.message);
+      }
+    }
+
+    // --- Bootstrapping: fetch shared data and render ---
+    async function fetchAndRenderShared(){
+      await fetchSharedData();
+      computeAndRenderStats();
+      renderChart(currentRange);
+    }
+
+    // --- UI wiring ---
+    document.getElementById('manualRefresh').addEventListener('click', manualRefresh);
+    document.getElementById('forceFetch').addEventListener('click', fetchAndRenderShared);
+
+    document.querySelectorAll('.tab-btn').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        const range = btn.getAttribute('data-range');
+        renderChart(range);
+      });
+    });
+
+    // initial load
+    (async ()=>{
+      // try shared data, if fails then fallback to localStorage 'sharedLogs'
+      await fetchAndRenderShared();
+
+      // auto refresh shared data every 1 hour (keeps page in sync with GH Action)
+      setInterval(fetchAndRenderShared, 60*60*1000);
+    })();
+  </script>
+</body>
+</html>
