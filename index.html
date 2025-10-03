@@ -51,8 +51,8 @@ h1 { margin:6px 0; font-size:1.6rem; font-weight:600; }
 .tab-btn { background:#222; color:#ddd; border-radius:8px; padding:8px 12px; border:none; cursor:pointer; }
 .tab-btn.active { background:var(--accent); color:#021805; font-weight:700; }
 
-/* FIX: Canvas height is now controlled by its parent wrapper div for better stability */
-.chart-container { position: relative; height: 300px; margin-top: 12px; }
+/* Chart wrapper */
+.chart-container { position: relative; height:300px; width:100%; margin-top:12px; }
 canvas { max-width:100%; display:block; }
 
 /* responsive */
@@ -126,17 +126,19 @@ let chart = null;
 let currentRange = '24h';
 
 function asNumber(n){ return +n; }
-function toIST(ms){ return new Date(ms).toLocaleString('en-IN', { timeZone:'Asia/Kolkata', hour12: true, hour: 'numeric', minute: '2-digit' }); }
-function toISTDate(ms) { return new Date(ms).toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric'}); }
+function toIST(ms){ return new Date(ms).toLocaleString('en-IN', { timeZone:'Asia/Kolkata', hour12:true, hour:'2-digit', minute:'2-digit' }); }
+function toISTDate(ms){ return new Date(ms).toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', day:'numeric', month:'short', year:'numeric'}); }
 
+// --- Fetch live Reddit subscriber count ---
 async function fetchLiveCount(){
   try {
     const res = await fetch(`https://www.reddit.com/r/${SUBREDDIT}/about.json?raw_json=1`, {cache:'no-store'});
     const json = await res.json();
     return json.data.subscribers || 0;
-  } catch(e) { console.warn('Live fetch failed', e); return null; }
+  } catch(e){ console.warn('Live fetch failed', e); return null; }
 }
 
+// --- Fetch data.json from GitHub ---
 async function fetchDataJson(){
   try{
     const res = await fetch(DATA_URL+'?t='+Date.now(), {cache:'no-store'});
@@ -152,89 +154,85 @@ async function fetchDataJson(){
   }
 }
 
+// --- Helpers ---
 function getLatest(){ return logs.length ? logs[logs.length-1] : null; }
 function baseline(startMs){
-  // Find the last record on or before the start time
   const found = logs.slice().reverse().find(log => log.time <= startMs);
   return found ? found.count : (logs.length ? logs[0].count : 0);
 }
 
+// --- Update subscriber counts and stats ---
 async function updateSubs(){
   await fetchDataJson();
-  let liveCount = await fetchLiveCount();
+  const liveCount = await fetchLiveCount();
   const latestLog = getLatest();
   const latestCount = liveCount || (latestLog ? latestLog.count : 0);
   document.getElementById('count').textContent = latestCount.toLocaleString('en-IN');
 
-  // --- FIX: All date calculations are now timezone-aware for IST (UTC+05:30) ---
   const now = new Date();
-  
-  // Get date parts in IST to avoid local timezone errors
-  const istDateStr = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-  const year = istDateStr.getFullYear();
-  const month = istDateStr.getMonth() + 1;
-  const day = istDateStr.getDate();
+  const istNow = new Date(now.toLocaleString('en-US', { timeZone:'Asia/Kolkata' }));
 
-  // Create Date objects corresponding to midnight IST for today, this month, and this year
-  const bDay = new Date(`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}T00:00:00.000+05:30`);
-  const bMonth = new Date(`${year}-${String(month).padStart(2,'0')}-01T00:00:00.000+05:30`);
-  const bYear = new Date(`${year}-01-01T00:00:00.000+05:30`);
+  // Start of today/month/year in IST
+  const bDay = new Date(istNow.getFullYear(), istNow.getMonth(), istNow.getDate());
+  const bMonth = new Date(istNow.getFullYear(), istNow.getMonth(), 1);
+  const bYear = new Date(istNow.getFullYear(),0,1);
 
-  // Calculate the start of the week (Monday) in IST
-  const dayOfWeekIST = istDateStr.getDay(); // Sunday is 0, Monday is 1
-  const daysToSubtract = (dayOfWeekIST === 0) ? 6 : (dayOfWeekIST - 1); // If Sunday, go back 6 days, else (day-1)
-  const bWeek = new Date(bDay.getTime() - daysToSubtract * 24 * 60 * 60 * 1000);
-  // --- END FIX ---
+  // Start of week (Monday)
+  const dayOfWeek = istNow.getDay(); // Sunday=0
+  const daysToMonday = (dayOfWeek === 0) ? 6 : dayOfWeek-1;
+  const bWeek = new Date(bDay.getTime() - daysToMonday*24*60*60*1000);
 
+  // Calculate growth
   const baseDay = baseline(bDay.getTime());
   const baseWeek = baseline(bWeek.getTime());
   const baseMonth = baseline(bMonth.getTime());
   const baseYear = baseline(bYear.getTime());
 
-  const formatGrowth = (val) => (val >= 0 ? '+' : '') + val.toLocaleString('en-IN');
-  
-  document.getElementById('dailyGrowth').textContent = formatGrowth(latestCount - baseDay);
+  const formatGrowth = val => (val>=0?'+':'')+val.toLocaleString('en-IN');
+
+  document.getElementById('dailyGrowth').textContent = formatGrowth(latestCount-baseDay);
   document.getElementById('dailyPrev').textContent = 'from ' + toISTDate(bDay.getTime());
-  document.getElementById('weeklyGrowth').textContent = formatGrowth(latestCount - baseWeek);
+  document.getElementById('weeklyGrowth').textContent = formatGrowth(latestCount-baseWeek);
   document.getElementById('weeklyPrev').textContent = 'from ' + toISTDate(bWeek.getTime());
-  document.getElementById('monthlyGrowth').textContent = formatGrowth(latestCount - baseMonth);
+  document.getElementById('monthlyGrowth').textContent = formatGrowth(latestCount-baseMonth);
   document.getElementById('monthlyPrev').textContent = 'from ' + toISTDate(bMonth.getTime());
-  document.getElementById('yearlyGrowth').textContent = formatGrowth(latestCount - baseYear);
+  document.getElementById('yearlyGrowth').textContent = formatGrowth(latestCount-baseYear);
   document.getElementById('yearlyPrev').textContent = 'from ' + toISTDate(bYear.getTime());
 
-  document.getElementById('lastUpdated').textContent = 'Last updated: '+ new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
+  document.getElementById('lastUpdated').textContent = 'Last updated: '+ istNow.toLocaleString('en-IN', {dateStyle:'medium', timeStyle:'short', timeZone:'Asia/Kolkata'});
 
   renderChart();
 }
 
+// --- Render Chart.js ---
 function renderChart(){
   const ctx = document.getElementById('growthChart').getContext('2d');
-  if(!logs.length) return;
-
-  const rangeMs = {'24h':24*60*60*1000,'7d':7*24*60*60*1000,'30d':30*24*60*60*1000,'12m':365*24*60*60*1000}[currentRange];
-  const now = Date.now();
-  const filtered = logs.filter(l => l.time >= now-rangeMs);
-  const labels = filtered.map(l => toIST(l.time));
-  const data = filtered.map(l => l.count);
-
   if(chart){ chart.destroy(); chart=null; }
 
-  chart = new Chart(ctx,{
+  const now = Date.now();
+  const rangeMs = {'24h':24*60*60*1000,'7d':7*24*60*60*1000,'30d':30*24*60*60*1000,'12m':365*24*60*60*1000}[currentRange];
+  const filtered = logs.filter(l => l.time >= now-rangeMs);
+
+  const labels = filtered.map(l=>toIST(l.time));
+  const data = filtered.map(l=>l.count);
+
+  chart = new Chart(ctx, {
     type:'line',
-    data:{ labels, datasets:[{label:'Subscribers', data, borderColor:'#4CAF50', backgroundColor:'rgba(76,175,80,0.2)', tension:0.3, pointRadius: 1 }] },
+    data:{ labels, datasets:[{label:'Subscribers', data, borderColor:'#4CAF50', backgroundColor:'rgba(76,175,80,0.2)', tension:0.3, pointRadius:1}] },
     options:{
-        responsive:true,
-        maintainAspectRatio:false,
-        scales:{
-            x:{ ticks: { maxTicksLimit: 10, color: 'rgba(255,255,255,0.5)' }, grid: { color: 'rgba(255,255,255,0.1)' } },
-            y:{ ticks: { color: 'rgba(255,255,255,0.5)' }, grid: { color: 'rgba(255,255,255,0.1)' } }
-        },
-        plugins:{ legend:{display:false} }
+      responsive:true,
+      maintainAspectRatio:false,
+      animation:false, // stops repeated zoom
+      scales:{
+        x:{ ticks:{ maxTicksLimit:10, color:'#bbb' }, grid:{ color:'rgba(255,255,255,0.1)' } },
+        y:{ ticks:{ color:'#bbb' }, grid:{ color:'rgba(255,255,255,0.1)' } }
+      },
+      plugins:{ legend:{ display:false } }
     }
   });
 }
 
-// Tabs
+// --- Tab buttons ---
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.addEventListener('click',()=>{
     document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
@@ -244,9 +242,9 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
   });
 });
 
-// init
+// --- Init ---
 updateSubs();
-setInterval(updateSubs,60*60*1000); // auto-update hourly
+setInterval(updateSubs,60*60*1000); // hourly
 </script>
 </body>
 </html>
