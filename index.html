@@ -102,10 +102,10 @@ button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; dis
   <div class="card">
     <div style="text-align:center"><small class="muted">Graph range</small></div>
     <div class="tabs" role="tablist" aria-label="Ranges">
-      <button class="tab-btn" data-range="24h">24 Hours</button>
+      <button class="tab-btn active" data-range="24h">24 Hours</button>
       <button class="tab-btn" data-range="7d">7 Days</button>
       <button class="tab-btn" data-range="30d">30 Days</button>
-      <button class="tab-btn active" data-range="12m">12 Months</button>
+      <button class="tab-btn" data-range="12m">12 Months</button>
     </div>
     <div class="chart-container">
       <canvas id="growthChart"></canvas>
@@ -122,57 +122,25 @@ const DATA_URL = 'data.json';
 const SUBREDDIT = 'indianrailways';
 let logs = [];
 let chart = null;
-let currentRange = '12m'; // Default to 12 months
+let currentRange = '24h';
 
-// --- Using values from your image as the baseline ---
-const LATEST_COUNT = 349693;
-const GROWTH_TODAY = 8;
-const GROWTH_WEEK = 1318;
-const GROWTH_MONTH = 5608;
-const GROWTH_YEAR = 105008;
+// --- Seed baseline (initial values you provided)
+const SEED = {
+  daily: 349685,
+  weekly: 1310,
+  monthly: 5600,
+  yearly: 105000
+};
 
 function asNumber(n){ return +n; }
 function toIST(ms){ return new Date(ms).toLocaleString('en-IN', { timeZone:'Asia/Kolkata', hour12:true, hour:'numeric', minute:'2-digit' }); }
 function toISTDate(ms){ return new Date(ms).toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', day:'numeric', month:'short', year:'numeric' }); }
 
-
-// --- KEY CHANGE START ---
-// This new function generates mock historical data to populate the graph
-// when data.json is not available.
-function generateMockLogs() {
-    const mockLogs = [];
-    const now = Date.now();
-    const endCount = LATEST_COUNT;
-    const startCount = LATEST_COUNT - GROWTH_YEAR;
-    const totalDays = 365;
-
-    for (let i = 0; i <= totalDays; i++) {
-        const progress = i / totalDays;
-        const timestamp = now - ((totalDays - i) * 24 * 60 * 60 * 1000);
-        // Create a slightly non-linear growth for realism
-        const count = Math.round(startCount + (GROWTH_YEAR * Math.pow(progress, 1.2)));
-        
-        // Add some small random jitter to make it look more organic
-        const jitter = (Math.random() - 0.5) * 50;
-        
-        mockLogs.push({ time: timestamp, count: count + jitter });
-    }
-    // Ensure the last point is the exact current count
-    mockLogs[mockLogs.length - 1].count = endCount;
-
-    return mockLogs;
-}
-// --- KEY CHANGE END ---
-
-
 async function fetchLiveCount(){
   try {
-    // For this example, we return the known latest count to ensure consistency
-    // The original fetch would work fine too.
-    return LATEST_COUNT;
-    // const res = await fetch(`https://www.reddit.com/r/${SUBREDDIT}/about.json?raw_json=1`, {cache:'no-store'});
-    // const json = await res.json();
-    // return json.data.subscribers || 0;
+    const res = await fetch(`https://www.reddit.com/r/${SUBREDDIT}/about.json?raw_json=1`, {cache:'no-store'});
+    const json = await res.json();
+    return json.data.subscribers || 0;
   } catch(e){ console.warn('Live fetch failed', e); return null; }
 }
 
@@ -190,15 +158,18 @@ async function fetchDataJson(){
     if(cached) logs = JSON.parse(cached);
   }
 
-  // --- KEY CHANGE: Replaced the old single-point fallback with the mock data generator ---
+  // --- If no logs exist yet, seed initial log for today using SEED
   if(!logs.length){
-    console.log('No data found. Generating mock historical data for demonstration.');
-    logs = generateMockLogs();
+    const now = new Date();
+    const istNow = new Date(now.toLocaleString('en-US', { timeZone:'Asia/Kolkata' }));
+    const time = istNow.getTime();
+    const startCount = SEED.daily; // initial total count
+    logs.push({time:time, count:startCount});
     localStorage.setItem('sharedLogs', JSON.stringify(logs));
   }
 }
 
-function getLatest(){ return logs.length ? logs[logs.length-1] : { time: Date.now(), count: LATEST_COUNT }; }
+function getLatest(){ return logs.length ? logs[logs.length-1] : null; }
 function baseline(startMs){
   const found = logs.slice().reverse().find(l => l.time <= startMs);
   return found ? found.count : (logs.length ? logs[0].count : 0);
@@ -206,8 +177,10 @@ function baseline(startMs){
 
 async function updateSubs(){
   await fetchDataJson();
-  const liveCount = await fetchLiveCount() || getLatest().count;
-  document.getElementById('count').textContent = liveCount.toLocaleString('en-IN');
+  const liveCount = await fetchLiveCount();
+  const latestLog = getLatest();
+  const latestCount = liveCount || (latestLog ? latestLog.count : SEED.daily);
+  document.getElementById('count').textContent = latestCount.toLocaleString('en-IN');
 
   // --- IST-aware start times ---
   const now = new Date();
@@ -221,21 +194,21 @@ async function updateSubs(){
   const daysToSubtract = (dayOfWeek ===0) ? 6 : (dayOfWeek-1);
   const bWeek = new Date(bDay.getTime() - daysToSubtract*24*60*60*1000);
 
-  // --- Calculate growth using baseline logs ---
-  const baseDay = baseline(bDay.getTime());
-  const baseWeek = baseline(bWeek.getTime());
-  const baseMonth = baseline(bMonth.getTime());
-  const baseYear = baseline(bYear.getTime());
+  // --- Calculate growth using baseline logs
+  const baseDay = baseline(bDay.getTime()) || SEED.daily;
+  const baseWeek = baseline(bWeek.getTime()) || (SEED.daily - SEED.weekly);
+  const baseMonth = baseline(bMonth.getTime()) || (SEED.daily - SEED.monthly);
+  const baseYear = baseline(bYear.getTime()) || (SEED.daily - SEED.yearly);
 
   const formatGrowth = (val) => (val>=0?'+':'')+val.toLocaleString('en-IN');
 
-  document.getElementById('dailyGrowth').textContent = formatGrowth(liveCount - baseDay);
+  document.getElementById('dailyGrowth').textContent = formatGrowth(latestCount - baseDay);
   document.getElementById('dailyPrev').textContent = 'from '+toISTDate(bDay.getTime());
-  document.getElementById('weeklyGrowth').textContent = formatGrowth(liveCount - baseWeek);
+  document.getElementById('weeklyGrowth').textContent = formatGrowth(latestCount - baseWeek);
   document.getElementById('weeklyPrev').textContent = 'from '+toISTDate(bWeek.getTime());
-  document.getElementById('monthlyGrowth').textContent = formatGrowth(liveCount - baseMonth);
+  document.getElementById('monthlyGrowth').textContent = formatGrowth(latestCount - baseMonth);
   document.getElementById('monthlyPrev').textContent = 'from '+toISTDate(bMonth.getTime());
-  document.getElementById('yearlyGrowth').textContent = formatGrowth(liveCount - baseYear);
+  document.getElementById('yearlyGrowth').textContent = formatGrowth(latestCount - baseYear);
   document.getElementById('yearlyPrev').textContent = 'from '+toISTDate(bYear.getTime());
 
   document.getElementById('lastUpdated').textContent = 'Last updated: '+
@@ -248,69 +221,23 @@ function renderChart(){
   const ctx = document.getElementById('growthChart').getContext('2d');
   if(!logs.length) return;
 
-  const rangeMs = {'24h':24*60*60*1000,'7d':7*24*60*60*1000,'30d':30*24*60*60*1000,'12m':365.25*24*60*60*1000}[currentRange];
+  const rangeMs = {'24h':24*60*60*1000,'7d':7*24*60*60*1000,'30d':30*24*60*60*1000,'12m':365*24*60*60*1000}[currentRange];
   const now = Date.now();
-  
-  // Filter logs based on the selected range
   const filtered = logs.filter(l => l.time >= now - rangeMs);
-
-  // If the 24h range is too sparse, add the last known point before it to anchor the line
-  if (currentRange === '24h' && filtered.length > 0) {
-      const pointBefore = logs.slice().reverse().find(l => l.time < filtered[0].time);
-      if (pointBefore) {
-          filtered.unshift(pointBefore);
-      }
-  }
-
-  const labels = filtered.map(l => new Date(l.time));
+  const labels = filtered.map(l => toIST(l.time));
   const data = filtered.map(l => l.count);
 
   if(chart){ chart.destroy(); chart=null; }
 
   chart = new Chart(ctx,{
     type:'line',
-    data:{ 
-        labels, 
-        datasets:[{
-            label:'Subscribers', 
-            data, 
-            borderColor:'#4CAF50', 
-            backgroundColor:'rgba(76,175,80,0.2)', 
-            tension:0.3, 
-            pointRadius: 1,
-            fill: true
-        }] 
-    },
+    data:{ labels, datasets:[{label:'Subscribers', data, borderColor:'#4CAF50', backgroundColor:'rgba(76,175,80,0.2)', tension:0.3, pointRadius: 1 }] },
     options:{
         responsive:true,
         maintainAspectRatio:false,
         scales:{
-            x:{ 
-                type: 'time',
-                time: {
-                    unit: currentRange === '24h' ? 'hour' : 'month',
-                    tooltipFormat: 'MMM D, YYYY, h:mm a',
-                    displayFormats: {
-                        hour: 'h a',
-                        day: 'MMM D',
-                        month: 'MMM YYYY'
-                    }
-                },
-                ticks: { color:'rgba(255,255,255,0.5)' }, 
-                grid:{ color:'rgba(255,255,255,0.1)' } 
-            },
-            y:{ 
-                ticks:{ 
-                    color:'rgba(255,255,255,0.5)',
-                    callback: function(value) {
-                        if (value >= 1000) {
-                            return (value / 1000) + 'K';
-                        }
-                        return value;
-                    }
-                }, 
-                grid:{ color:'rgba(255,255,255,0.1)' } 
-            }
+            x:{ ticks: { maxTicksLimit:10, color:'rgba(255,255,255,0.5)' }, grid:{ color:'rgba(255,255,255,0.1)' } },
+            y:{ ticks:{ color:'rgba(255,255,255,0.5)' }, grid:{ color:'rgba(255,255,255,0.1)' } }
         },
         plugins:{ legend:{display:false} }
     }
@@ -328,16 +255,8 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 });
 
 // Init
-// Need to add Chart.js time adapter for the 'time' scale on X-axis
-const script = document.createElement('script');
-script.src = 'https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js';
-script.onload = () => {
-    updateSubs();
-};
-document.head.appendChild(script);
-
-// Don't auto-update in this snippet to avoid unnecessary fetches
-// setInterval(updateSubs, 60*60*1000); 
+updateSubs();
+setInterval(updateSubs, 60*60*1000); // update hourly
 </script>
 </body>
 </html>
