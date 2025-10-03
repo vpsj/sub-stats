@@ -51,7 +51,7 @@ jobs:
           COUNT=${{ steps.fetch.outputs.count }}
           echo "Now (ms): $NOW_MS Count: $COUNT"
 
-          LAST_TIME=$(jq -r '.logs | last?.time // 0' data.json)
+          LAST_TIME=$(jq -r '.logs | if length>0 then .[-1].time else 0 end' data.json)
           if [ "$LAST_TIME" -lt "$NOW_MS" ]; then
             jq --arg time "$NOW_MS" --argjson count "$COUNT" '.logs += [{"time": ($time|tonumber), "count": $count}]' data.json > data.tmp && mv data.tmp data.json
           else
