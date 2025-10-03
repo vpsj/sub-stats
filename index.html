@@ -51,7 +51,9 @@ h1 { margin:6px 0; font-size:1.6rem; font-weight:600; }
 .tab-btn { background:#222; color:#ddd; border-radius:8px; padding:8px 12px; border:none; cursor:pointer; }
 .tab-btn.active { background:var(--accent); color:#021805; font-weight:700; }
 
-canvas { max-width:100%; height:300px; margin-top:12px; display:block; }
+/* FIX: Canvas height is now controlled by its parent wrapper div for better stability */
+.chart-container { position: relative; height: 300px; margin-top: 12px; }
+canvas { max-width:100%; display:block; }
 
 /* responsive */
 @media (max-width:640px){
@@ -106,7 +108,9 @@ button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; dis
       <button class="tab-btn" data-range="30d">30 Days</button>
       <button class="tab-btn" data-range="12m">12 Months</button>
     </div>
-    <canvas id="growthChart"></canvas>
+    <div class="chart-container">
+      <canvas id="growthChart"></canvas>
+    </div>
   </div>
 
   <div style="text-align:center; color:var(--muted); margin-top:10px;">
@@ -122,7 +126,8 @@ let chart = null;
 let currentRange = '24h';
 
 function asNumber(n){ return +n; }
-function toIST(ms){ return new Date(ms).toLocaleString('en-IN', { timeZone:'Asia/Kolkata' }); }
+function toIST(ms){ return new Date(ms).toLocaleString('en-IN', { timeZone:'Asia/Kolkata', hour12: true, hour: 'numeric', minute: '2-digit' }); }
+function toISTDate(ms) { return new Date(ms).toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric'}); }
 
 async function fetchLiveCount(){
   try {
@@ -149,10 +154,9 @@ async function fetchDataJson(){
 
 function getLatest(){ return logs.length ? logs[logs.length-1] : null; }
 function baseline(startMs){
-  for(let i=logs.length-1;i>=0;i--){
-    if(logs[i].time<=startMs) return logs[i].count;
-  }
-  return logs.length ? logs[0].count : 0;
+  // Find the last record on or before the start time
+  const found = logs.slice().reverse().find(log => log.time <= startMs);
+  return found ? found.count : (logs.length ? logs[0].count : 0);
 }
 
 async function updateSubs(){
@@ -160,29 +164,45 @@ async function updateSubs(){
   let liveCount = await fetchLiveCount();
   const latestLog = getLatest();
   const latestCount = liveCount || (latestLog ? latestLog.count : 0);
-  document.getElementById('count').textContent = latestCount.toLocaleString();
+  document.getElementById('count').textContent = latestCount.toLocaleString('en-IN');
 
+  // --- FIX: All date calculations are now timezone-aware for IST (UTC+05:30) ---
   const now = new Date();
-  const bDay = new Date(now); bDay.setHours(0,0,0,0);
-  const bWeek = new Date(bDay); bWeek.setDate(bDay.getDate() - ((bDay.getDay()+6)%7));
-  const bMonth = new Date(bDay.getFullYear(), bDay.getMonth(),1);
-  const bYear = new Date(bDay.getFullYear(),0,1);
+  
+  // Get date parts in IST to avoid local timezone errors
+  const istDateStr = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const year = istDateStr.getFullYear();
+  const month = istDateStr.getMonth() + 1;
+  const day = istDateStr.getDate();
+
+  // Create Date objects corresponding to midnight IST for today, this month, and this year
+  const bDay = new Date(`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}T00:00:00.000+05:30`);
+  const bMonth = new Date(`${year}-${String(month).padStart(2,'0')}-01T00:00:00.000+05:30`);
+  const bYear = new Date(`${year}-01-01T00:00:00.000+05:30`);
+
+  // Calculate the start of the week (Monday) in IST
+  const dayOfWeekIST = istDateStr.getDay(); // Sunday is 0, Monday is 1
+  const daysToSubtract = (dayOfWeekIST === 0) ? 6 : (dayOfWeekIST - 1); // If Sunday, go back 6 days, else (day-1)
+  const bWeek = new Date(bDay.getTime() - daysToSubtract * 24 * 60 * 60 * 1000);
+  // --- END FIX ---
 
   const baseDay = baseline(bDay.getTime());
   const baseWeek = baseline(bWeek.getTime());
   const baseMonth = baseline(bMonth.getTime());
   const baseYear = baseline(bYear.getTime());
 
-  document.getElementById('dailyGrowth').textContent = ((latestCount-baseDay)>=0?'+':'')+(latestCount-baseDay).toLocaleString();
-  document.getElementById('dailyPrev').textContent = 'from '+toIST(baseDay);
-  document.getElementById('weeklyGrowth').textContent = ((latestCount-baseWeek)>=0?'+':'')+(latestCount-baseWeek).toLocaleString();
-  document.getElementById('weeklyPrev').textContent = 'from '+toIST(baseWeek);
-  document.getElementById('monthlyGrowth').textContent = ((latestCount-baseMonth)>=0?'+':'')+(latestCount-baseMonth).toLocaleString();
-  document.getElementById('monthlyPrev').textContent = 'from '+toIST(baseMonth);
-  document.getElementById('yearlyGrowth').textContent = ((latestCount-baseYear)>=0?'+':'')+(latestCount-baseYear).toLocaleString();
-  document.getElementById('yearlyPrev').textContent = 'from '+toIST(baseYear);
+  const formatGrowth = (val) => (val >= 0 ? '+' : '') + val.toLocaleString('en-IN');
+  
+  document.getElementById('dailyGrowth').textContent = formatGrowth(latestCount - baseDay);
+  document.getElementById('dailyPrev').textContent = 'from ' + toISTDate(bDay.getTime());
+  document.getElementById('weeklyGrowth').textContent = formatGrowth(latestCount - baseWeek);
+  document.getElementById('weeklyPrev').textContent = 'from ' + toISTDate(bWeek.getTime());
+  document.getElementById('monthlyGrowth').textContent = formatGrowth(latestCount - baseMonth);
+  document.getElementById('monthlyPrev').textContent = 'from ' + toISTDate(bMonth.getTime());
+  document.getElementById('yearlyGrowth').textContent = formatGrowth(latestCount - baseYear);
+  document.getElementById('yearlyPrev').textContent = 'from ' + toISTDate(bYear.getTime());
 
-  document.getElementById('lastUpdated').textContent = 'Last updated: '+toIST(now.getTime());
+  document.getElementById('lastUpdated').textContent = 'Last updated: '+ new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
 
   renderChart();
 }
@@ -201,8 +221,16 @@ function renderChart(){
 
   chart = new Chart(ctx,{
     type:'line',
-    data:{ labels, datasets:[{label:'Subscribers', data, borderColor:'#4CAF50', backgroundColor:'rgba(76,175,80,0.2)', tension:0.3}] },
-    options:{ responsive:true, maintainAspectRatio:false, scales:{x:{display:true},y:{display:true}}, plugins:{legend:{display:false}} }
+    data:{ labels, datasets:[{label:'Subscribers', data, borderColor:'#4CAF50', backgroundColor:'rgba(76,175,80,0.2)', tension:0.3, pointRadius: 1 }] },
+    options:{
+        responsive:true,
+        maintainAspectRatio:false,
+        scales:{
+            x:{ ticks: { maxTicksLimit: 10, color: 'rgba(255,255,255,0.5)' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+            y:{ ticks: { color: 'rgba(255,255,255,0.5)' }, grid: { color: 'rgba(255,255,255,0.1)' } }
+        },
+        plugins:{ legend:{display:false} }
+    }
   });
 }
 
