@@ -18,7 +18,7 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y jq curl
 
-            - name: Fetch subreddit subscriber count
+      - name: Fetch subreddit subscriber count
         id: fetch
         run: |
           set -e
@@ -31,16 +31,15 @@ jobs:
               -A "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0 (by /u/vpsj)" \
               "https://www.reddit.com/r/${SUB}/about.json?raw_json=1" || true)
 
-            # Extract subscribers safely
             if [ -n "$JSON" ]; then
               COUNT=$(echo "$JSON" | jq -r '.data.subscribers // 0' 2>/dev/null || echo "0")
             fi
 
             if [ "$COUNT" -gt 0 ]; then
-              echo "Success: got $COUNT subscribers"
+              echo "✅ Success: got $COUNT subscribers"
               break
             else
-              echo "Attempt $i failed (got $COUNT). Sleeping 10s..."
+              echo "⚠️ Attempt $i failed (got $COUNT). Sleeping 10s..."
               sleep 10
             fi
           done
@@ -52,7 +51,6 @@ jobs:
 
           echo "Final fetched count: $COUNT"
           echo "count=$COUNT" >> "$GITHUB_OUTPUT"
-
 
       - name: Ensure data.json exists
         run: |
@@ -75,7 +73,7 @@ jobs:
             echo "Latest log already up-to-date. Skipping append."
           fi
 
-          # Keep only last 10,000 entries
+          # Trim to last 10,000 entries
           jq '.logs |= (sort_by(.time) | unique_by(.time) | reverse | .[0:10000] | reverse)' \
             data.json > data.tmp && mv data.tmp data.json
 
