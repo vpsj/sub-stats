@@ -1,67 +1,67 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>r/IndianRailways — Subscribers</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    :root{
-      --bg:#0f1113;
-      --panel:#111214;
-      --muted:#bbb;
-      --accent:#4CAF50;
-      --card-radius:12px;
-      --pad:16px;
-    }
-    body{
-      margin:0;
-      font-family:Inter,Arial,Helvetica,sans-serif;
-      background:linear-gradient(180deg, #0b0b0d 0%, #121214 100%);
-      color:#fff;
-      padding:20px;
-      -webkit-font-smoothing:antialiased;
-    }
-    .container{ max-width:980px; margin:0 auto; }
-    header { text-align:center; margin-bottom:8px; }
-    h1 { margin:6px 0; font-size:1.6rem; font-weight:600; }
-    #count { font-size:3.8rem; font-weight:800; color:var(--accent); letter-spacing:0.02em; }
-    .card {
-      background: rgba(255,255,255,0.02);
-      border-radius:var(--card-radius);
-      padding:var(--pad);
-      margin:12px 0;
-      box-shadow: 0 6px 18px rgba(0,0,0,0.45);
-    }
-    .stats { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
-    .stat {
-      min-width:180px;
-      background:rgba(255,255,255,0.02);
-      padding:12px;
-      border-radius:10px;
-      text-align:center;
-    }
-    .stat b { display:block; font-size:0.95rem; margin-bottom:6px; color:#fff; }
-    .stat .val { font-size:1.25rem; font-weight:700; color:var(--accent); }
-    .stat .prev { color:var(--muted); font-size:0.85rem; margin-top:6px; display:block; }
-    #lastUpdated { color:var(--muted); text-align:center; margin-top:8px; font-size:0.9rem; }
+<meta charset="UTF-8" />
+<title>r/IndianRailways — Subscribers</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+:root{
+  --bg:#0f1113;
+  --panel:#111214;
+  --muted:#bbb;
+  --accent:#4CAF50;
+  --card-radius:12px;
+  --pad:16px;
+}
+body{
+  margin:0;
+  font-family:Inter,Arial,Helvetica,sans-serif;
+  background:linear-gradient(180deg,#0b0b0d 0%,#121214 100%);
+  color:#fff;
+  padding:20px;
+  -webkit-font-smoothing:antialiased;
+}
+.container{ max-width:980px; margin:0 auto; }
+header { text-align:center; margin-bottom:8px; }
+h1 { margin:6px 0; font-size:1.6rem; font-weight:600; }
+#count { font-size:3.8rem; font-weight:800; color:var(--accent); letter-spacing:0.02em; }
+.card {
+  background: rgba(255,255,255,0.02);
+  border-radius:var(--card-radius);
+  padding:var(--pad);
+  margin:12px 0;
+  box-shadow:0 6px 18px rgba(0,0,0,0.45);
+}
+.stats { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+.stat {
+  min-width:180px;
+  background:rgba(255,255,255,0.02);
+  padding:12px;
+  border-radius:10px;
+  text-align:center;
+}
+.stat b { display:block; font-size:0.95rem; margin-bottom:6px; color:#fff; }
+.stat .val { font-size:1.25rem; font-weight:700; color:var(--accent); }
+.stat .prev { color:var(--muted); font-size:0.85rem; margin-top:6px; display:block; }
+#lastUpdated { color:var(--muted); text-align:center; margin-top:8px; font-size:0.9rem; }
 
-    /* tabs */
-    .tabs { display:flex; gap:8px; justify-content:center; margin-top:18px; flex-wrap:wrap; }
-    .tab-btn { background:#222; color:#ddd; border-radius:8px; padding:8px 12px; border:none; cursor:pointer; }
-    .tab-btn.active { background:var(--accent); color:#021805; font-weight:700; }
+/* tabs */
+.tabs { display:flex; gap:8px; justify-content:center; margin-top:18px; flex-wrap:wrap; }
+.tab-btn { background:#222; color:#ddd; border-radius:8px; padding:8px 12px; border:none; cursor:pointer; }
+.tab-btn.active { background:var(--accent); color:#021805; font-weight:700; }
 
-    canvas { max-width:100%; margin-top:12px; display:block; }
+canvas { max-width:100%; height:300px; margin-top:12px; display:block; }
 
-    /* responsive */
-    @media (max-width:640px){
-      #count { font-size:2.4rem; }
-      .stat { min-width:140px; }
-      h1 { font-size:1.2rem; }
-    }
+/* responsive */
+@media (max-width:640px){
+  #count { font-size:2.4rem; }
+  .stat { min-width:140px; }
+  h1 { font-size:1.2rem; }
+}
 
-    button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; display:block; margin-left:auto; margin-right:auto; }
-  </style>
+button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; display:block; margin-left:auto; margin-right:auto; }
+</style>
 </head>
 <body>
 <div class="container">
@@ -106,7 +106,7 @@
       <button class="tab-btn" data-range="30d">30 Days</button>
       <button class="tab-btn" data-range="12m">12 Months</button>
     </div>
-    <canvas id="growthChart" height="160"></canvas>
+    <canvas id="growthChart"></canvas>
   </div>
 
   <div style="text-align:center; color:var(--muted); margin-top:10px;">
@@ -117,13 +117,12 @@
 <script>
 const DATA_URL = 'data.json';
 const SUBREDDIT = 'indianrailways';
-const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 let logs = [];
 let chart = null;
 let currentRange = '24h';
 
 function asNumber(n){ return +n; }
-function toIST(ms){ return new Date(ms + IST_OFFSET); }
+function toIST(ms){ return new Date(ms).toLocaleString('en-IN', { timeZone:'Asia/Kolkata' }); }
 
 async function fetchLiveCount(){
   try {
@@ -163,8 +162,8 @@ async function updateSubs(){
   const latestCount = liveCount || (latestLog ? latestLog.count : 0);
   document.getElementById('count').textContent = latestCount.toLocaleString();
 
-  const now = Date.now();
-  const bDay = new Date(now + IST_OFFSET); bDay.setHours(0,0,0,0);
+  const now = new Date();
+  const bDay = new Date(now); bDay.setHours(0,0,0,0);
   const bWeek = new Date(bDay); bWeek.setDate(bDay.getDate() - ((bDay.getDay()+6)%7));
   const bMonth = new Date(bDay.getFullYear(), bDay.getMonth(),1);
   const bYear = new Date(bDay.getFullYear(),0,1);
@@ -175,22 +174,19 @@ async function updateSubs(){
   const baseYear = baseline(bYear.getTime());
 
   document.getElementById('dailyGrowth').textContent = ((latestCount-baseDay)>=0?'+':'')+(latestCount-baseDay).toLocaleString();
-  document.getElementById('dailyPrev').textContent = 'from '+baseDay.toLocaleString();
+  document.getElementById('dailyPrev').textContent = 'from '+toIST(baseDay);
   document.getElementById('weeklyGrowth').textContent = ((latestCount-baseWeek)>=0?'+':'')+(latestCount-baseWeek).toLocaleString();
-  document.getElementById('weeklyPrev').textContent = 'from '+baseWeek.toLocaleString();
+  document.getElementById('weeklyPrev').textContent = 'from '+toIST(baseWeek);
   document.getElementById('monthlyGrowth').textContent = ((latestCount-baseMonth)>=0?'+':'')+(latestCount-baseMonth).toLocaleString();
-  document.getElementById('monthlyPrev').textContent = 'from '+baseMonth.toLocaleString();
+  document.getElementById('monthlyPrev').textContent = 'from '+toIST(baseMonth);
   document.getElementById('yearlyGrowth').textContent = ((latestCount-baseYear)>=0?'+':'')+(latestCount-baseYear).toLocaleString();
-  document.getElementById('yearlyPrev').textContent = 'from '+baseYear.toLocaleString();
+  document.getElementById('yearlyPrev').textContent = 'from '+toIST(baseYear);
 
-  // last updated
-  const istTime = new Date(now + IST_OFFSET);
-  document.getElementById('lastUpdated').textContent = 'Last updated: '+istTime.toLocaleString('en-IN')+' (IST)';
+  document.getElementById('lastUpdated').textContent = 'Last updated: '+toIST(now.getTime());
 
   renderChart();
 }
 
-// Graph
 function renderChart(){
   const ctx = document.getElementById('growthChart').getContext('2d');
   if(!logs.length) return;
@@ -198,14 +194,15 @@ function renderChart(){
   const rangeMs = {'24h':24*60*60*1000,'7d':7*24*60*60*1000,'30d':30*24*60*60*1000,'12m':365*24*60*60*1000}[currentRange];
   const now = Date.now();
   const filtered = logs.filter(l => l.time >= now-rangeMs);
-  const labels = filtered.map(l => toIST(l.time).toLocaleString('en-IN',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}));
+  const labels = filtered.map(l => toIST(l.time));
   const data = filtered.map(l => l.count);
 
-  if(chart) chart.destroy();
+  if(chart){ chart.destroy(); chart=null; }
+
   chart = new Chart(ctx,{
     type:'line',
     data:{ labels, datasets:[{label:'Subscribers', data, borderColor:'#4CAF50', backgroundColor:'rgba(76,175,80,0.2)', tension:0.3}] },
-    options:{ responsive:true, maintainAspectRatio:false, scales:{x:{display:true},y:{display:true}} }
+    options:{ responsive:true, maintainAspectRatio:false, scales:{x:{display:true},y:{display:true}}, plugins:{legend:{display:false}} }
   });
 }
 
