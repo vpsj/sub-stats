@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>r/IndianRailways Subscriber Count</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: #fff;
+      text-align: center;
+      padding: 40px;
+    }
+    h1 {
+      font-size: 3em;
+      margin-bottom: 10px;
+    }
+    #count {
+      font-size: 5em;
+      font-weight: bold;
+      margin: 20px 0;
+      color: #4CAF50;
+    }
+    button {
+      font-size: 1.2em;
+      padding: 10px 20px;
+      margin: 20px;
+      border: none;
+      border-radius: 8px;
+      background: #4CAF50;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    .stats {
+      margin-top: 30px;
+      font-size: 1.2em;
+    }
+  </style>
+</head>
+<body>
+  <h1>r/IndianRailways Subscribers</h1>
+  <div id="count">Loading...</div>
+  <button onclick="updateCount()">Refresh Count</button>
+  
+  <div class="stats">
+    <p><b>Growth Today:</b> <span id="daily">0</span></p>
+    <p><b>Growth This Week:</b> <span id="weekly">0</span></p>
+    <p><b>Growth This Month:</b> <span id="monthly">0</span></p>
+  </div>
+
+  <script>
+    const API_URL = "https://www.reddit.com/r/indianrailways/about.json";
+
+    async function fetchCount() {
+      const response = await fetch(API_URL);
+      const data = await response.json();
+      return data.data.subscribers;
+    }
+
+    function loadStats(current) {
+      const now = new Date();
+      let history = JSON.parse(localStorage.getItem("subscriberHistory")) || {};
+
+      // Initialize if empty
+      if (!history.daily || new Date(history.daily.date).getDate() !== now.getDate()) {
+        history.daily = { date: now, count: current };
+      }
+      if (!history.weekly || getWeekNumber(new Date(history.weekly.date)) !== getWeekNumber(now)) {
+        history.weekly = { date: now, count: current };
+      }
+      if (!history.monthly || new Date(history.monthly.date).getMonth() !== now.getMonth()) {
+        history.monthly = { date: now, count: current };
+      }
+
+      // Save back
+      localStorage.setItem("subscriberHistory", JSON.stringify(history));
+
+      document.getElementById("daily").innerText = current - history.daily.count;
+      document.getElementById("weekly").innerText = current - history.weekly.count;
+      document.getElementById("monthly").innerText = current - history.monthly.count;
+    }
+
+    function getWeekNumber(d) {
+      d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay()||7));
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+      return Math.ceil((((d - yearStart) / 86400000) + 1)/7);
+    }
+
+    async function updateCount() {
+      const count = await fetchCount();
+      document.getElementById("count").innerText = count.toLocaleString();
+      loadStats(count);
+    }
+
+    // Auto load on page open
+    updateCount();
+  </script>
+</body>
+</html>
