@@ -120,16 +120,16 @@ button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; dis
 
 <script>
 /*
-  Improvements:
-  - Accurate countAtTime(t) using interpolation.
-  - Growth metrics use the value at start-of-period (IST).
-  - Chart baseline uses the same value so ranges show small upticks correctly.
+  Revised script:
+  - Uses data.json (preferred) otherwise generates seeded historical logs so the chart looks real.
+  - Live fallback via reddit about.json on Update Now (best-effort).
+  - Proper time handling for IST, Chart.js time scale with objects {x,y}, safe chart destroy, no animation.
 */
 
 const DATA_URL = 'data.json';
 const SUBREDDIT = 'indianrailways';
 
-// seed values used only as fallbacks
+// your seed numbers (used only if data.json missing or contains only zeros)
 const LATEST_COUNT = 349693;
 const GROWTH_TODAY = 8;
 const GROWTH_WEEK = 1318;
@@ -154,7 +154,7 @@ function formatGrowth(val){
   return (val>=0?'+':'') + formatNumberIndian(val);
 }
 
-// fetch data.json (preferred), else localStorage, else seeded logs
+// Try to fetch data.json from repo (preferred). Returns true if fetched any logs (even from localStorage fallback).
 async function fetchDataJson(){
   try {
     const res = await fetch(DATA_URL + '?t=' + Date.now(), { cache: 'no-store' });
@@ -162,16 +162,19 @@ async function fetchDataJson(){
     const json = await res.json();
     const parsed = (json.logs || []).map(l => ({ time: asNumber(l.time), count: asNumber(l.count) }));
     parsed.sort((a,b)=>a.time-b.time);
+    // if parsed has non-zero counts, use it; otherwise treat as absent
     const hasRealCounts = parsed.some(p => p.count && p.count > 0);
     if(hasRealCounts){
       logs = parsed;
       localStorage.setItem('sharedLogs', JSON.stringify(logs));
       return true;
     } else {
+      // maybe old broken logs (zeros). fall through to localStorage/seed.
       throw new Error('data.json contains no real counts');
     }
   } catch(e){
     console.warn('fetchDataJson failed:', e);
+    // try localStorage
     const cached = localStorage.getItem('sharedLogs');
     if(cached){
       try{
@@ -185,13 +188,14 @@ async function fetchDataJson(){
         console.warn('localStorage parse failed', err);
       }
     }
+    // nothing available — we'll generate seeded logs
     logs = generateSeedLogs();
     localStorage.setItem('sharedLogs', JSON.stringify(logs));
     return false;
   }
 }
 
-// live fetch (best-effort)
+// Live fetch from reddit (best-effort). This may fail due to CORS/rate-limits.
 async function fetchLiveCount(){
   try {
     const res = await fetch(`https://www.reddit.com/r/${SUBREDDIT}/about.json?raw_json=1`, { cache:'no-store' });
@@ -206,7 +210,7 @@ async function fetchLiveCount(){
   }
 }
 
-// produce seeded historical logs if nothing else exists
+// Generate realistic seeded logs (daily across 12 months + hourly for last 30 days)
 function generateSeedLogs(){
   const now = Date.now();
   const startCount = LATEST_COUNT - GROWTH_YEAR;
@@ -216,15 +220,19 @@ function generateSeedLogs(){
   for(let d=0; d<=totalDays; d++){
     const frac = d / totalDays;
     const time = now - (totalDays - d) * DAY_MS;
+    // smooth curve (slight non-linearity)
     const base = Math.round(startCount + GROWTH_YEAR * Math.pow(frac, 1.05));
+    // small jitter more realistic
     const jitter = Math.round((Math.random()-0.5) * 150);
     daily.push({ time: time, count: Math.max(0, base + jitter) });
   }
 
+  // hourly points for last 30 days (finer resolution)
   const hourly = [];
   const hours = 30 * 24;
   for(let h=0; h<=hours; h++){
     const time = now - (hours - h) * HOUR_MS;
+    // map to overall fraction across 365 days:
     const dayIndex = totalDays - 30 + (h / 24);
     const frac = Math.max(0, Math.min(1, dayIndex / totalDays));
     const base = Math.round(startCount + GROWTH_YEAR * Math.pow(frac, 1.05));
@@ -232,11 +240,14 @@ function generateSeedLogs(){
     hourly.push({ time: time, count: Math.max(0, base + jitter) });
   }
 
+  // combine, prefer hourly entries where timestamps overlap
   const map = new Map();
   daily.forEach(p => map.set(p.time, p.count));
-  hourly.forEach(p => map.set(p.time, p.count));
+  hourly.forEach(p => map.set(p.time, p.count)); // overrides daily for those timestamps
+  // ensure final exact now point equals LATEST_COUNT
   map.set(now, LATEST_COUNT);
 
+  // convert map back to sorted array
   const combined = Array.from(map.entries()).map(([time,count])=>({time, count}));
   combined.sort((a,b)=>a.time-b.time);
   return combined;
@@ -244,37 +255,17 @@ function generateSeedLogs(){
 
 function getLatest(){ return logs.length ? logs[logs.length-1] : { time: Date.now(), count: LATEST_COUNT }; }
 
-// --- NEW: accurate interpolation function ---
-// returns the subscriber count at arbitrary timestamp t (ms).
-// If t falls between two logged samples we linearly interpolate.
-function countAtTime(t){
-  if(!logs.length) return null;
-  // before earliest log -> return earliest
-  if(t <= logs[0].time) return logs[0].count;
-  const lastIdx = logs.length - 1;
-  if(t >= logs[lastIdx].time) return logs[lastIdx].count;
-
-  // binary search for index i where logs[i].time <= t < logs[i+1].time
-  let lo = 0, hi = lastIdx;
-  while(lo <= hi){
-    const mid = Math.floor((lo + hi) / 2);
-    if(logs[mid].time === t) return logs[mid].count;
-    if(logs[mid].time < t) lo = mid + 1;
-    else hi = mid - 1;
+// find last log on or before startMs
+function baseline(startMs){
+  for(let i = logs.length - 1; i >= 0; i--){
+    if (logs[i].time <= startMs) return logs[i].count;
   }
-  // now hi is the index with logs[hi].time < t and lo = hi+1
-  const i = Math.max(0, hi);
-  const j = i + 1;
-  if(j >= logs.length) return logs[i].count;
-  const t0 = logs[i].time, t1 = logs[j].time;
-  const c0 = logs[i].count, c1 = logs[j].count;
-  if(t1 === t0) return c0;
-  const ratio = (t - t0) / (t1 - t0);
-  return Math.round(c0 + (c1 - c0) * ratio);
+  return logs.length ? logs[0].count : LATEST_COUNT;
 }
 
 // Build IST midnight timestamp for given Y/M/D
 function istMidnightMs(year, monthIndex, day){
+  // build ISO string with +05:30 offset to create exact IST midnight instant
   const mm = String(monthIndex+1).padStart(2,'0');
   const dd = String(day).padStart(2,'0');
   const iso = `${year}-${mm}-${dd}T00:00:00+05:30`;
@@ -282,14 +273,17 @@ function istMidnightMs(year, monthIndex, day){
 }
 
 async function updateSubs(){
+  // Try to fetch data.json (preferred); if not available we will have seeded logs
   await fetchDataJson();
 
-  // live best-effort
+  // Try live fetch for the very latest count for immediate display
   const liveCount = await fetchLiveCount();
 
+  // If live count present, append locally to logs so UI reflects latest instantly (won't push to repo)
   if(liveCount && (!logs.length || logs[logs.length-1].count !== liveCount)){
     const nowMs = Date.now();
     logs.push({ time: nowMs, count: liveCount });
+    // keep last 10000 in local copy
     if(logs.length > 10000) logs = logs.slice(-10000);
     localStorage.setItem('sharedLogs', JSON.stringify(logs));
   }
@@ -297,7 +291,7 @@ async function updateSubs(){
   const latest = (liveCount || (logs.length ? logs[logs.length-1].count : LATEST_COUNT));
   document.getElementById('count').textContent = formatNumberIndian(latest);
 
-  // IST-aware starts (midnight IST)
+  // IST-aware starts
   const now = new Date();
   const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const year = istNow.getFullYear(), month = istNow.getMonth(), day = istNow.getDate();
@@ -305,32 +299,22 @@ async function updateSubs(){
   const bDayMs = istMidnightMs(year, month, day);
   const bMonthMs = istMidnightMs(year, month, 1);
   const bYearMs = istMidnightMs(year, 0, 1);
-
   const dayOfWeek = istNow.getDay(); // Sunday=0
   const daysToMonday = (dayOfWeek === 0) ? 6 : (dayOfWeek - 1);
   const bWeekMs = bDayMs - daysToMonday * DAY_MS;
 
-  // use interpolation to get baseline values at exact start times (if logs exist)
-  let baseDay = countAtTime(bDayMs);
-  let baseWeek = countAtTime(bWeekMs);
-  let baseMonth = countAtTime(bMonthMs);
-  let baseYear = countAtTime(bYearMs);
-
-  // fall back to seed deltas only if interpolation returned null (no logs)
-  if(baseDay === null) baseDay = latest - GROWTH_TODAY;
-  if(baseWeek === null) baseWeek = latest - GROWTH_WEEK;
-  if(baseMonth === null) baseMonth = latest - GROWTH_MONTH;
-  if(baseYear === null) baseYear = latest - GROWTH_YEAR;
+  // baselines - if no log found for that time, fall back to seed deltas
+  const baseDay = baseline(bDayMs) || (latest - GROWTH_TODAY);
+  const baseWeek = baseline(bWeekMs) || (latest - GROWTH_WEEK);
+  const baseMonth = baseline(bMonthMs) || (latest - GROWTH_MONTH);
+  const baseYear = baseline(bYearMs) || (latest - GROWTH_YEAR);
 
   document.getElementById('dailyGrowth').textContent = formatGrowth(latest - baseDay);
   document.getElementById('dailyPrev').textContent = 'from ' + toISTDate(bDayMs);
-
   document.getElementById('weeklyGrowth').textContent = formatGrowth(latest - baseWeek);
   document.getElementById('weeklyPrev').textContent = 'from ' + toISTDate(bWeekMs);
-
   document.getElementById('monthlyGrowth').textContent = formatGrowth(latest - baseMonth);
   document.getElementById('monthlyPrev').textContent = 'from ' + toISTDate(bMonthMs);
-
   document.getElementById('yearlyGrowth').textContent = formatGrowth(latest - baseYear);
   document.getElementById('yearlyPrev').textContent = 'from ' + toISTDate(bYearMs);
 
@@ -340,7 +324,7 @@ async function updateSubs(){
   renderChart();
 }
 
-// Render Chart.js using interpolated baseline for the range start
+// Render Chart.js with data points {x: time, y: count}
 function renderChart(){
   const canvas = document.getElementById('growthChart');
   const ctx = canvas.getContext('2d');
@@ -350,27 +334,24 @@ function renderChart(){
   const rangeMs = { '24h': 24*HOUR_MS, '7d': 7*DAY_MS, '30d': 30*DAY_MS, '12m': 365*DAY_MS }[currentRange];
   const rangeStart = now - rangeMs;
 
-  // Filter logs that fall inside the range, but we'll anchor a point at rangeStart
+  // Filter logs in range
   let filtered = logs.filter(l => l.time >= rangeStart);
 
-  // If there is a log before rangeStart, include it so we can interpolate; else we'll create a synthetic baseline
-  const before = logs.slice().reverse().find(l => l.time < rangeStart);
-  const baselineVal = (countAtTime(rangeStart) !== null) ? countAtTime(rangeStart) : (getLatest().count - (currentRange === '24h' ? GROWTH_TODAY : currentRange === '7d' ? GROWTH_WEEK : currentRange === '30d' ? GROWTH_MONTH : GROWTH_YEAR));
-
-  // Insert the baseline point at rangeStart (if filtered doesn't already begin at or before it)
-  if(filtered.length === 0 || filtered[0].time > rangeStart){
-    filtered.unshift({ time: rangeStart, count: baselineVal });
+  // --- baseline logic ---
+  if(filtered.length === 0){
+    filtered = [ getLatest() ];
   } else {
-    // if filtered[0].time === rangeStart leave it; if first is after rangeStart, unshift baseline
-    if(filtered[0].time > rangeStart){
+    const first = filtered[0];
+    if(first.time > rangeStart){
+      // simulate baseline by subtracting known growth
+      let baselineVal;
+      if(currentRange==='24h') baselineVal = getLatest().count - GROWTH_TODAY;
+      else if(currentRange==='7d') baselineVal = getLatest().count - GROWTH_WEEK;
+      else if(currentRange==='30d') baselineVal = getLatest().count - GROWTH_MONTH;
+      else baselineVal = getLatest().count - GROWTH_YEAR;
+
       filtered.unshift({ time: rangeStart, count: baselineVal });
     }
-  }
-
-  // Ensure we show the latest point (if live recently appended)
-  const last = getLatest();
-  if(!filtered.length || filtered[filtered.length-1].time < last.time){
-    filtered.push(last);
   }
 
   const dataPoints = filtered.map(p => ({ x: p.time, y: p.count }));
@@ -380,10 +361,10 @@ function renderChart(){
     chart = null;
   }
 
+  // auto scale Y axis to min/max in range
   const yVals = dataPoints.map(p=>p.y);
   const yMin = Math.min(...yVals);
   const yMax = Math.max(...yVals);
-  const pad = Math.max(1, Math.round((yMax - yMin) * 0.06)); // add 6% padding to top/bottom
 
   const unit = currentRange === '24h' ? 'hour' : (currentRange === '7d' ? 'day' : (currentRange === '30d' ? 'day' : 'month'));
 
@@ -398,7 +379,7 @@ function renderChart(){
         pointRadius: 2,
         pointBackgroundColor: '#4CAF50',
         tension: 0.15,
-        fill: false
+        fill: false   // <- no area fill
       }]
     },
     options: {
@@ -414,8 +395,8 @@ function renderChart(){
           grid: { color: 'rgba(255,255,255,0.06)' }
         },
         y: {
-          suggestedMin: Math.max(0, yMin - pad),
-          suggestedMax: yMax + pad,
+          suggestedMin: yMin * 0.995,
+          suggestedMax: yMax * 1.005,
           ticks: {
             color: 'rgba(255,255,255,0.7)',
             callback: val => formatNumberIndian(val)
@@ -435,7 +416,7 @@ function renderChart(){
   });
 }
 
-// tab logic
+// Tab buttons
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
@@ -445,10 +426,10 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
   });
 });
 
-// initial load
+// Init: try to load data.json (or seed) and render chart
 updateSubs();
 
-// refresh hourly in browser
+// Optional hourly auto-refresh in-browser (keeps UI current)
 setInterval(() => {
   updateSubs().catch(e => console.warn('auto update failed', e));
 }, 60*60*1000);
