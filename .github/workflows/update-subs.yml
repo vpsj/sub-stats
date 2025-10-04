@@ -1,9 +1,9 @@
 name: Hourly subreddit subscriber logger
 
 on:
-  # schedule:
-  #  - cron: '0 * * * *' # every hour at minute 0 (UTC)
-  workflow_dispatch: {}  # manual trigger
+  schedule:
+    - cron: '0 * * * *'  # every hour on the hour (UTC)
+  workflow_dispatch: {}
 
 jobs:
   update-subs:
@@ -13,76 +13,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install jq and curl
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y jq curl
+          python -m pip install --upgrade pip
+          pip install praw
 
-      - name: Fetch subreddit subscriber count
-        id: fetch
+      - name: Run PRAW script to fetch subscribers
+        env:
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
         run: |
-          set -e
-          SUB="indianrailways"
-          echo "Fetching subscriber count for r/$SUB"
+          python praw_subs.py
 
-          COUNT=0
-          for i in {1..5}; do
-            JSON=$(curl -s -L \
-              -A "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0 (by /u/vpsj)" \
-              "https://www.reddit.com/r/${SUB}/about.json?raw_json=1" || true)
-
-            if [ -n "$JSON" ]; then
-              COUNT=$(echo "$JSON" | jq -r '.data.subscribers // 0' 2>/dev/null || echo "0")
-            fi
-
-            if [ "$COUNT" -gt 0 ]; then
-              echo "✅ Success: got $COUNT subscribers"
-              break
-            else
-              echo "⚠️ Attempt $i failed (got $COUNT). Sleeping 10s..."
-              sleep 10
-            fi
-          done
-
-          if [ "$COUNT" -eq 0 ]; then
-            echo "❌ Failed to fetch subscriber count after retries."
-            exit 1
-          fi
-
-          echo "Final fetched count: $COUNT"
-          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
-
-      - name: Ensure data.json exists
-        run: |
-          if [ ! -f data.json ]; then
-            echo '{"logs":[]}' > data.json
-          fi
-
-      - name: Append new entry to data.json
-        run: |
-          NOW_MS=$(($(date +%s) * 1000))
-          COUNT=${{ steps.fetch.outputs.count }}
-          echo "Now (ms): $NOW_MS Count: $COUNT"
-
-          LAST_TIME=$(jq -r '.logs | if length>0 then .[-1].time else 0 end' data.json)
-          if [ "$LAST_TIME" -lt "$NOW_MS" ]; then
-            jq --arg time "$NOW_MS" --argjson count "$COUNT" \
-              '.logs += [{"time": ($time|tonumber), "count": $count}]' \
-              data.json > data.tmp && mv data.tmp data.json
-          else
-            echo "Latest log already up-to-date. Skipping append."
-          fi
-
-          # Trim to last 10,000 entries
-          jq '.logs |= (sort_by(.time) | unique_by(.time) | reverse | .[0:10000] | reverse)' \
-            data.json > data.tmp && mv data.tmp data.json
-
-      - name: Commit & push data.json
+      - name: Commit & push data.json if changed
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data.json
-          git commit -m "Update subscriber log: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" || echo "No changes to commit"
-          git push
+          git add data.json || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update subscriber log: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+            git push
+          fi
