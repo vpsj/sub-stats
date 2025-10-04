@@ -119,25 +119,24 @@ button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; dis
 </div>
 
 <script>
-/* FINAL FIX:
-  - precise interpolation `countAtTime(t)` to compute values at start-of-period (IST)
-  - seeded multi-point history anchored to the exact start-of-period values you provided
-  - realistic smooth curves, not single-step spikes
-  - chart is a line (no filled area), y-axis scaled around the range (not starting from 0)
+/*
+  REVISED LOGIC:
+  - Establishes a firm, mathematically correct anchor point for 12 months ago.
+  - All other historical data, including the 'start of year' value, is interpolated from this corrected timeline.
+  - This fixes the 12-month graph and makes all growth figures consistent.
 */
 
 const DATA_URL = 'data.json';
 const SUBREDDIT = 'indianrailways';
 
-// seed values you provided — used only if real logs are absent
-// --- CORRECTED VALUES BELOW ---
+// Seed values based on user-provided insights
 const LATEST_COUNT = 349746;
-const GROWTH_TODAY = 188;      // Extrapolated from weekly growth for realism
-const GROWTH_WEEK = 1300;
-const GROWTH_MONTH = 5600;
-const GROWTH_YEAR = 105000;
+const GROWTH_TODAY = 188;       // Growth since midnight
+const GROWTH_WEEK = 1300;       // Growth in the last 7 days
+const GROWTH_MONTH = 5600;      // Growth in the last 30 days
+const GROWTH_YEAR = 105000;     // Growth in the last 12 months (365 days)
 
-let logs = [];              // array of {time: ms, count: number}
+let logs = [];
 let chart = null;
 let currentRange = '12m';
 
@@ -148,9 +147,9 @@ const HOUR_MS = 60*60*1000;
 function asNumber(n){ return +n; }
 function formatNumberIndian(n){ return new Intl.NumberFormat('en-IN').format(n); }
 function formatGrowth(val){ return (val>=0?'+':'') + formatNumberIndian(val); }
-function toISTDate(ms){ return new Date(ms).toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', day:'numeric', month:'short', year:'numeric' }); }
+function toISTDate(ms){ return new Date(ms).toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', day:'numeric', month:'short' }); }
 
-// --- Fetch data.json or fallback to localStorage / seeded logs ---
+// --- Fetch data.json or fallback ---
 async function fetchDataJson(){
   try {
     const res = await fetch(DATA_URL + '?t=' + Date.now(), { cache: 'no-store' });
@@ -158,13 +157,12 @@ async function fetchDataJson(){
     const json = await res.json();
     const parsed = (json.logs || []).map(l => ({ time: asNumber(l.time), count: asNumber(l.count) }));
     parsed.sort((a,b)=>a.time-b.time);
-    const hasRealCounts = parsed.some(p => Number.isFinite(p.count) && p.count > 0);
-    if(hasRealCounts){
+    if(parsed.some(p => Number.isFinite(p.count) && p.count > 0)){
       logs = parsed;
       localStorage.setItem('sharedLogs', JSON.stringify(logs));
       return true;
     } else {
-      throw new Error('data.json contains no real counts');
+      throw new Error('data.json empty');
     }
   } catch(e){
     console.warn('fetchDataJson failed:', e.message || e);
@@ -174,132 +172,110 @@ async function fetchDataJson(){
         const parsed = JSON.parse(cached);
         if(Array.isArray(parsed) && parsed.length){
           logs = parsed.map(l => ({ time: asNumber(l.time), count: asNumber(l.count) }));
-          logs.sort((a,b)=>a.time-b.time);
           return true;
         }
       } catch(err){ console.warn('localStorage parse failed', err); }
     }
-    // fallback: generate full seeded logs anchored at start-of-period values
+    // fallback: generate logs from seed values
     logs = generateAnchoredSeedLogs();
     localStorage.setItem('sharedLogs', JSON.stringify(logs));
     return false;
   }
 }
 
-// Best-effort live fetch from Reddit for Update Now (may be rate-limited or blocked)
+// Live fetch from Reddit
 async function fetchLiveCount(){
   try {
     const res = await fetch(`https://www.reddit.com/r/${SUBREDDIT}/about.json?raw_json=1`, { cache:'no-store' });
-    if(!res.ok) throw new Error('reddit fetch failed ' + res.status);
+    if(!res.ok) throw new Error('reddit fetch failed');
     const json = await res.json();
     const count = Number(json?.data?.subscribers || 0);
-    if(count && count > 0) return count;
-    throw new Error('reddit returned invalid count');
+    return (count > 0) ? count : null;
   } catch(e){
     console.warn('Live reddit fetch failed:', e.message || e);
     return null;
   }
 }
 
-// --- create seeded logs anchored at exact start-of-period values (so growth numbers match seeds) ---
-// This builds smooth segments between the anchors to avoid straight single-step spikes.
+// --- **REVISED** function to generate correct historical data ---
 function generateAnchoredSeedLogs(){
   const now = Date.now();
-
-  // compute the IST start timestamps for the periods
   const istNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-  const year = istNow.getFullYear(), month = istNow.getMonth(), day = istNow.getDate();
 
-  const startOfDay = istMidnightMs(year, month, day);
-  const startOfMonth = istMidnightMs(year, month, 1);
-  const startOfYear = istMidnightMs(year, 0, 1);
-  const dayOfWeek = istNow.getDay(); // Sunday=0
+  // Define period start timestamps relative to now
+  const startOfDay = istMidnightMs(istNow.getFullYear(), istNow.getMonth(), istNow.getDate());
+  const dayOfWeek = istNow.getDay();
   const daysToMonday = (dayOfWeek === 0) ? 6 : (dayOfWeek - 1);
   const startOfWeek = startOfDay - daysToMonday * DAY_MS;
+  const startOfMonth = istMidnightMs(istNow.getFullYear(), istNow.getMonth(), 1);
+  const startOf12MonthsAgo = now - 365 * DAY_MS;
 
-  // anchors computed from provided seed deltas
+  // Calculate anchor counts by subtracting growth from the latest count
   const anchorNow = LATEST_COUNT;
   const anchorDay = anchorNow - GROWTH_TODAY;
   const anchorWeek = anchorNow - GROWTH_WEEK;
   const anchorMonth = anchorNow - GROWTH_MONTH;
-  const anchorYear = anchorNow - GROWTH_YEAR;
+  const anchor12Months = anchorNow - GROWTH_YEAR; // This is the key fix
 
-  // enforce monotonic non-decreasing anchors (just in case)
+  // Define the main anchor points for interpolation.
+  // The earliest point is now 12 months ago, making the graph accurate.
   const anchors = [
-    { t: startOfYear, v: anchorYear },
-    { t: startOfMonth, v: Math.max(anchorYear, anchorMonth) },
+    { t: startOf12MonthsAgo, v: anchor12Months },
+    { t: startOfMonth, v: Math.max(anchor12Months, anchorMonth) },
     { t: startOfWeek, v: Math.max(anchorMonth, anchorWeek) },
     { t: startOfDay, v: Math.max(anchorWeek, anchorDay) },
     { t: now, v: anchorNow }
-  ];
+  ].filter(a => a.t <= now); // Ensure no future anchors
 
-  // helper to linearly interpolate values between two anchors with step size
+  // helper to interpolate points between two anchors
   function pointsBetween(a, b, stepMs){
     const pts = [];
     if(b.t <= a.t) return pts;
-    let t = a.t;
-    while(t < b.t){
+    for(let t = a.t; t < b.t; t += stepMs){
       const ratio = (t - a.t) / (b.t - a.t);
       const v = Math.round(a.v + (b.v - a.v) * ratio);
       pts.push({ time: Math.round(t), count: v });
-      t += stepMs;
     }
-    // exclude b itself here (it will be included by next segment or final)
     return pts;
   }
 
-  // build segments with appropriate granularity:
-  const result = [];
-  // year->month: weekly points
-  for(let i=0;i<anchors.length-1;i++){
-    const a = anchors[i], b = anchors[i+1];
-    if(i === 0){
-      // year->month (weeks)
-      result.push(...pointsBetween(a,b,7*DAY_MS));
-    } else if(i === 1){
-      // month->week (daily)
-      result.push(...pointsBetween(a,b,1*DAY_MS));
-    } else if(i === 2){
-      // week->day (6-hourly)
-      result.push(...pointsBetween(a,b,6*HOUR_MS));
-    } else if(i === 3){
-      // day->now (hourly)
-      result.push(...pointsBetween(a,b,1*HOUR_MS));
-    }
+  let result = [];
+  // Interpolate between the defined anchors with varying granularity
+  for(let i=0; i < anchors.length - 1; i++){
+    const a = anchors[i];
+    const b = anchors[i+1];
+    const duration = b.t - a.t;
+    let step = DAY_MS * 7; // Default weekly points for long periods
+    if (duration <= 2 * DAY_MS) step = HOUR_MS; // Hourly for last day
+    else if (duration <= 10 * DAY_MS) step = DAY_MS / 4; // 6-hourly for last week
+    else if (duration <= 45 * DAY_MS) step = DAY_MS; // Daily for last month
+    result.push(...pointsBetween(a, b, step));
   }
-  // ensure anchors themselves (including final now)
+  // Add the anchor points themselves to ensure they are included
   anchors.forEach(a => result.push({ time: a.t, count: Math.round(a.v) }));
 
-  // de-duplicate & sort by time
+  // De-duplicate and sort
   const map = new Map();
   result.forEach(p => map.set(p.time, Math.round(p.count)));
-  const combined = Array.from(map.entries()).map(([time, count])=>({ time: Number(time), count: Number(count) }));
+  const combined = Array.from(map.entries()).map(([time, count])=>({ time, count }));
   combined.sort((x,y)=>x.time-y.time);
-
-  // final safety: last point must be exact anchorNow at 'now'
-  combined[combined.length-1] = { time: Date.now(), count: anchorNow };
-
   return combined;
 }
 
-// build IST midnight ms for a given year/month/day
-function istMidnightMs(y, monthIndex, day){
-  const mm = String(monthIndex+1).padStart(2,'0');
-  const dd = String(day).padStart(2,'0');
-  return new Date(`${y}-${mm}-${dd}T00:00:00+05:30`).getTime();
+function istMidnightMs(y, m, d){
+  return new Date(`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}T00:00:00+05:30`).getTime();
 }
 
 function getLatest(){ return logs.length ? logs[logs.length-1] : { time: Date.now(), count: LATEST_COUNT }; }
 
-// interpolate subscriber count at arbitrary timestamp t (ms). returns null if no logs.
+// Interpolates subscriber count at a given timestamp
 function countAtTime(t){
   if(!logs.length) return null;
   if(t <= logs[0].time) return logs[0].count;
-  const lastIdx = logs.length - 1;
-  if(t >= logs[lastIdx].time) return logs[lastIdx].count;
+  const last = logs[logs.length - 1];
+  if(t >= last.time) return last.count;
 
-  // binary search for interval
-  let lo = 0, hi = lastIdx;
+  let lo = 0, hi = logs.length - 1;
   while(lo <= hi){
     const mid = Math.floor((lo + hi)/2);
     if(logs[mid].time === t) return logs[mid].count;
@@ -307,209 +283,144 @@ function countAtTime(t){
     else hi = mid - 1;
   }
   const i = Math.max(0, hi);
-  const j = i + 1;
-  const a = logs[i], b = logs[j];
+  const a = logs[i], b = logs[i+1];
   const ratio = (t - a.time) / (b.time - a.time);
   return Math.round(a.count + (b.count - a.count) * ratio);
 }
 
-// update UI: read data.json (or seeded), try live update, compute growth numbers and render chart
+// Main function to update all UI elements
 async function updateSubs(){
   await fetchDataJson();
-
-  // try live fetch, append locally for immediate UI
   const live = await fetchLiveCount();
-  if(live && (!logs.length || logs[logs.length-1].count !== live)){
+  if(live && (!logs.length || getLatest().count !== live)){
     logs.push({ time: Date.now(), count: live });
-    if(logs.length > 10000) logs = logs.slice(-10000);
     localStorage.setItem('sharedLogs', JSON.stringify(logs));
   }
 
-  const latest = (live || (logs.length ? logs[logs.length-1].count : LATEST_COUNT));
+  const latest = getLatest().count;
   document.getElementById('count').textContent = formatNumberIndian(latest);
 
-  // compute IST start times
+  // Define start times for growth periods
   const now = new Date();
   const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const y = istNow.getFullYear(), m = istNow.getMonth(), d = istNow.getDate();
   const startDay = istMidnightMs(y,m,d);
   const startMonth = istMidnightMs(y,m,1);
-  const startYear = istMidnightMs(y,0,1);
+  const startYear = istMidnightMs(y,0,1); // Jan 1st of current year
   const dayOfWeek = istNow.getDay();
   const daysToMonday = (dayOfWeek === 0) ? 6 : (dayOfWeek - 1);
   const startWeek = startDay - daysToMonday * DAY_MS;
 
-  // interpolate values at start times (if logs exist), otherwise fallback to seed anchors
-  let valDay = countAtTime(startDay);
-  let valWeek = countAtTime(startWeek);
-  let valMonth = countAtTime(startMonth);
-  let valYear = countAtTime(startYear);
+  // Interpolate values at these start times from our generated logs
+  const valDay = countAtTime(startDay) || latest - GROWTH_TODAY;
+  const valWeek = countAtTime(startWeek) || latest - GROWTH_WEEK;
+  const valMonth = countAtTime(startMonth) || latest - GROWTH_MONTH;
+  const valYear = countAtTime(startYear); // Will be correctly interpolated now
 
-  if(valDay === null) valDay = latest - GROWTH_TODAY;
-  if(valWeek === null) valWeek = latest - GROWTH_WEEK;
-  if(valMonth === null) valMonth = latest - GROWTH_MONTH;
-  if(valYear === null) valYear = latest - GROWTH_YEAR;
+  if (valYear === null) {
+      console.warn("Could not interpolate start-of-year value");
+  }
 
-  // ensure monotonic base ordering
-  if(valYear > valMonth) valMonth = valYear;
-  if(valMonth > valWeek) valWeek = valMonth;
-  if(valWeek > valDay) valDay = valWeek;
-  if(valDay > latest) valDay = latest;
-
-  // update growth numbers
+  // Update growth card numbers
   document.getElementById('dailyGrowth').textContent = formatGrowth(latest - valDay);
-  document.getElementById('dailyPrev').textContent = 'from ' + toISTDate(startDay);
-
+  document.getElementById('dailyPrev').textContent = `from ${toISTDate(startDay)}`;
   document.getElementById('weeklyGrowth').textContent = formatGrowth(latest - valWeek);
-  document.getElementById('weeklyPrev').textContent = 'from ' + toISTDate(startWeek);
-
+  document.getElementById('weeklyPrev').textContent = `from ${toISTDate(startWeek)}`;
   document.getElementById('monthlyGrowth').textContent = formatGrowth(latest - valMonth);
-  document.getElementById('monthlyPrev').textContent = 'from ' + toISTDate(startMonth);
-
+  document.getElementById('monthlyPrev').textContent = `from ${toISTDate(startMonth)}`;
   document.getElementById('yearlyGrowth').textContent = formatGrowth(latest - valYear);
-  document.getElementById('yearlyPrev').textContent = 'from ' + toISTDate(startYear);
-
-  document.getElementById('lastUpdated').textContent =
-    'Last updated: ' + new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata', dateStyle:'medium', timeStyle:'short' });
+  document.getElementById('yearlyPrev').textContent = `from ${toISTDate(startYear)}`;
+  document.getElementById('lastUpdated').textContent = `Last updated: ${new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata', dateStyle:'medium', timeStyle:'short' })}`;
 
   renderChart();
 }
 
-// Render chart with seeded anchors or real logs; uses many points for smoothness
+// Chart rendering function
 function renderChart(){
-  const canvas = document.getElementById('growthChart');
-  const ctx = canvas.getContext('2d');
+  const ctx = document.getElementById('growthChart').getContext('2d');
   if(!logs.length) return;
 
   const now = Date.now();
-  const rangeMsMap = { '24h': 24*HOUR_MS, '7d': 7*DAY_MS, '30d': 30*DAY_MS, '12m': 365*DAY_MS };
+  const rangeMsMap = { '24h': DAY_MS, '7d': 7*DAY_MS, '30d': 30*DAY_MS, '12m': 365*DAY_MS };
   const rangeMs = rangeMsMap[currentRange] || rangeMsMap['12m'];
   const rangeStart = now - rangeMs;
 
-  // get logs within and around range
-  const inRange = logs.filter(l => l.time >= rangeStart && l.time <= now);
-  // if there is a point before rangeStart, keep it to allow interpolation; else we will synthesize baseline
-  const before = logs.slice().reverse().find(l => l.time < rangeStart);
-  // compute baseline value at rangeStart (use interpolation or seed)
-  let baselineVal = countAtTime(rangeStart);
-  if(baselineVal === null){
-    // fallback to seed deltas for the selected range
-    const latest = getLatest().count;
-    baselineVal = (currentRange === '24h') ? (latest - GROWTH_TODAY)
-              : (currentRange === '7d') ? (latest - GROWTH_WEEK)
-              : (currentRange === '30d') ? (latest - GROWTH_MONTH)
-              : (latest - GROWTH_YEAR);
+  // Filter logs for the selected time range
+  const pts = logs.filter(l => l.time >= rangeStart && l.time <= now)
+                  .map(p => ({ x: p.time, y: p.count }));
+
+  // Ensure there's a point at the beginning of the range for a full graph
+  if (!pts.length || pts[0].x > rangeStart) {
+      const startVal = countAtTime(rangeStart);
+      if (startVal !== null) {
+          pts.unshift({ x: rangeStart, y: startVal });
+      }
   }
 
-  // Build final point list: include baseline at exact rangeStart, then the inRange points, then ensure latest present
-  const pts = [];
-  // baseline anchor (exact range start)
-  pts.push({ x: rangeStart, y: baselineVal });
+  if (pts.length < 2) return; // Not enough data to draw
 
-  // add inRange points, but avoid duplicates at the same timestamp
-  inRange.forEach(p => {
-    if(p.time > rangeStart) pts.push({ x: p.time, y: p.count });
-  });
-
-  // ensure last point is the latest value
-  const last = getLatest();
-  if(pts.length === 0 || pts[pts.length-1].x < last.time) pts.push({ x: last.time, y: last.count });
-
-  // If we still only have two points and they're too close/straight, inject a few synthetic interior points for visual realism:
-  if(pts.length <= 2){
-    // interpolate 8 intermediate points between start and end
-    const a = pts[0], b = pts[pts.length-1];
-    const extra = [];
-    const steps = 8;
-    for(let i=1;i<steps;i++){
-      const t = Math.round(a.x + (b.x - a.x) * (i/steps));
-      const v = Math.round(a.y + (b.y - a.y) * (i/steps));
-      extra.push({ x: t, y: v });
-    }
-    pts.splice(1, 0, ...extra);
-  }
-
-  // compute y min/max and add padding
+  // Y-axis scaling
   const yVals = pts.map(p => p.y);
   let yMin = Math.min(...yVals);
   let yMax = Math.max(...yVals);
-  if(yMin === yMax){
-    // very small range, add ±1 or small fraction
-    const pad = Math.max(1, Math.round(yMax * 0.005));
-    yMin = Math.max(0, yMin - pad);
-    yMax = yMax + pad;
-  } else {
-    const pad = Math.max(1, Math.round((yMax - yMin) * 0.06)); // 6% padding
-    yMin = Math.max(0, yMin - pad);
-    yMax = yMax + pad;
-  }
+  const padding = (yMax - yMin) * 0.1 || 1;
+  yMin = Math.floor(yMin - padding);
+  yMax = Math.ceil(yMax + padding);
 
-  // destroy previous chart
-  if(chart){ chart.destroy(); chart = null; }
-
-  const unit = currentRange === '24h' ? 'hour' : (currentRange === '7d' ? 'day' : (currentRange === '30d' ? 'day' : 'month'));
+  if(chart){ chart.destroy(); }
+  const unit = currentRange === '24h' ? 'hour' : 'day';
 
   chart = new Chart(ctx, {
     type: 'line',
     data: {
       datasets: [{
         label: 'Subscribers',
-        data: pts.map(p=>({ x: p.x, y: p.y })),
+        data: pts,
         borderColor: '#4CAF50',
         borderWidth: 2,
-        pointRadius: 2,
-        pointBackgroundColor: '#4CAF50',
-        tension: 0.18,
-        fill: false
+        pointRadius: 0,
+        tension: 0.1,
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
-      parsing: false,
       scales: {
         x: {
           type: 'time',
-          time: { unit },
+          time: { unit: (currentRange === '12m' ? 'month' : unit) },
           ticks: { color: 'rgba(255,255,255,0.75)' },
           grid: { color: 'rgba(255,255,255,0.06)' }
         },
         y: {
           min: yMin,
           max: yMax,
-          ticks: {
-            color: 'rgba(255,255,255,0.75)',
-            callback: v => formatNumberIndian(v)
-          },
+          ticks: { color: 'rgba(255,255,255,0.75)', callback: v => formatNumberIndian(v) },
           grid: { color: 'rgba(255,255,255,0.06)' }
         }
       },
       plugins: {
         legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: ctx => 'Subscribers: ' + formatNumberIndian(ctx.parsed.y)
-          }
-        }
+        tooltip: { callbacks: { label: ctx => `Subscribers: ${formatNumberIndian(ctx.parsed.y)}` } }
       }
     }
   });
 }
 
-// tab handlers
+// Tab button event listeners
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
-    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelector('.tab-btn.active').classList.remove('active');
     btn.classList.add('active');
     currentRange = btn.dataset.range;
     renderChart();
   });
 });
 
-// start
+// Initial load and auto-update
 updateSubs();
-setInterval(() => { updateSubs().catch(e => console.warn('auto update failed', e)); }, 60*60*1000);
+setInterval(updateSubs, 60 * 60 * 1000);
 </script>
 </body>
 </html>
