@@ -10,7 +10,7 @@ except Exception:
 # Read credentials from env
 CLIENT_ID = os.environ.get("REDDIT_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("REDDIT_CLIENT_SECRET")
-USER_AGENT = os.environ.get("REDDIT_USER_AGENT", "SubStats subscriber fetcher (by u/rail_subscriber)")
+USER_AGENT = os.environ.get("REDDIT_USER_AGENT", "SubStats/0.1 by u/rail_subscriber")
 
 if not CLIENT_ID or not CLIENT_SECRET:
     raise SystemExit("Missing REDDIT_CLIENT_ID or REDDIT_CLIENT_SECRET environment variable.")
