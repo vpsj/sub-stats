@@ -332,17 +332,26 @@ function renderChart(){
 
   const now = Date.now();
   const rangeMs = { '24h': 24*HOUR_MS, '7d': 7*DAY_MS, '30d': 30*DAY_MS, '12m': 365*DAY_MS }[currentRange];
-  let filtered = logs.filter(l => l.time >= now - rangeMs);
+  const rangeStart = now - rangeMs;
 
-  // If filtered is empty, include the last available point to anchor the chart
-  if(filtered.length === 0 && logs.length){
-    const last = logs[logs.length-1];
-    filtered = [last];
+  // Filter logs in range
+  let filtered = logs.filter(l => l.time >= rangeStart);
+
+  // --- baseline logic ---
+  if(filtered.length === 0){
+    filtered = [ getLatest() ];
   } else {
-    // Ensure first point includes the last point before the range so line starts correctly
-    const firstInRange = filtered[0];
-    const before = logs.slice().reverse().find(l => l.time < (firstInRange ? firstInRange.time : now - rangeMs));
-    if(before) filtered.unshift(before);
+    const first = filtered[0];
+    if(first.time > rangeStart){
+      // simulate baseline by subtracting known growth
+      let baselineVal;
+      if(currentRange==='24h') baselineVal = getLatest().count - GROWTH_TODAY;
+      else if(currentRange==='7d') baselineVal = getLatest().count - GROWTH_WEEK;
+      else if(currentRange==='30d') baselineVal = getLatest().count - GROWTH_MONTH;
+      else baselineVal = getLatest().count - GROWTH_YEAR;
+
+      filtered.unshift({ time: rangeStart, count: baselineVal });
+    }
   }
 
   const dataPoints = filtered.map(p => ({ x: p.time, y: p.count }));
@@ -352,7 +361,11 @@ function renderChart(){
     chart = null;
   }
 
-  // choose time unit
+  // auto scale Y axis to min/max in range
+  const yVals = dataPoints.map(p=>p.y);
+  const yMin = Math.min(...yVals);
+  const yMax = Math.max(...yVals);
+
   const unit = currentRange === '24h' ? 'hour' : (currentRange === '7d' ? 'day' : (currentRange === '30d' ? 'day' : 'month'));
 
   chart = new Chart(ctx, {
@@ -362,10 +375,11 @@ function renderChart(){
         label: 'Subscribers',
         data: dataPoints,
         borderColor: '#4CAF50',
-        backgroundColor: 'rgba(76,175,80,0.12)',
-        tension: 0.25,
-        pointRadius: 1,
-        fill: true
+        borderWidth: 2,
+        pointRadius: 2,
+        pointBackgroundColor: '#4CAF50',
+        tension: 0.15,
+        fill: false   // <- no area fill
       }]
     },
     options: {
@@ -373,33 +387,19 @@ function renderChart(){
       maintainAspectRatio: false,
       animation: false,
       parsing: false,
-      normalized: true,
       scales: {
         x: {
           type: 'time',
-          time: {
-            unit: unit,
-            tooltipFormat: 'MMM d, yyyy, h:mm a',
-            displayFormats: {
-              hour: 'h a',
-              day: 'dd MMM',
-              month: 'MMM yyyy'
-            }
-          },
+          time: { unit },
           ticks: { color: 'rgba(255,255,255,0.7)' },
           grid: { color: 'rgba(255,255,255,0.06)' }
         },
         y: {
+          suggestedMin: yMin * 0.995,
+          suggestedMax: yMax * 1.005,
           ticks: {
             color: 'rgba(255,255,255,0.7)',
-            callback: function(val){
-              // show 1000 -> 1K, keep integers otherwise
-              const v = Number(val);
-              if (Math.abs(v) >= 1000) {
-                return (v/1000).toFixed(v%1000 === 0 ? 0 : 1) + 'K';
-              }
-              return v.toLocaleString('en-IN');
-            }
+            callback: val => formatNumberIndian(val)
           },
           grid: { color: 'rgba(255,255,255,0.06)' }
         }
@@ -408,10 +408,7 @@ function renderChart(){
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: function(context){
-              const v = context.parsed.y;
-              return 'Subscribers: ' + formatNumberIndian(v);
-            }
+            label: ctx => 'Subscribers: ' + formatNumberIndian(ctx.parsed.y)
           }
         }
       }
