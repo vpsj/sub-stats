@@ -119,115 +119,323 @@ button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; dis
 </div>
 
 <script>
+/*
+  Revised script:
+  - Uses data.json (preferred) otherwise generates seeded historical logs so the chart looks real.
+  - Live fallback via reddit about.json on Update Now (best-effort).
+  - Proper time handling for IST, Chart.js time scale with objects {x,y}, safe chart destroy, no animation.
+*/
+
+const DATA_URL = 'data.json';
+const SUBREDDIT = 'indianrailways';
+
+// your seed numbers (used only if data.json missing or contains only zeros)
 const LATEST_COUNT = 349693;
 const GROWTH_TODAY = 8;
 const GROWTH_WEEK = 1318;
 const GROWTH_MONTH = 5608;
 const GROWTH_YEAR = 105008;
 
-let logs = [];
+let logs = [];              // array of {time: ms, count: number}
 let chart = null;
 let currentRange = '12m';
 
-// Generate seed-based logs
-function generateLogs(){
-  const now = Date.now();
-  const logs12m = [];
-  const startCount = LATEST_COUNT - GROWTH_YEAR;
-  const totalDays = 365;
-  for(let i=0;i<=totalDays;i++){
-    const progress = i/totalDays;
-    const time = now - (totalDays-i)*24*60*60*1000;
-    const count = Math.round(startCount + GROWTH_YEAR*progress);
-    logs12m.push({time,count});
-  }
-  return logs12m;
+const DAY_MS = 24*60*60*1000;
+const HOUR_MS = 60*60*1000;
+
+function asNumber(n){ return +n; }
+function toISTDate(ms){
+  return new Date(ms).toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', day:'numeric', month:'short', year:'numeric' });
+}
+function formatNumberIndian(n){
+  return new Intl.NumberFormat('en-IN').format(n);
+}
+function formatGrowth(val){
+  return (val>=0?'+':'') + formatNumberIndian(val);
 }
 
-function formatNum(val){ return (val>=0?'+':'') + val.toLocaleString('en-IN'); }
-function toISTDate(ms){ return new Date(ms).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric', timeZone:'Asia/Kolkata' }); }
+// Try to fetch data.json from repo (preferred). Returns true if fetched any logs (even from localStorage fallback).
+async function fetchDataJson(){
+  try {
+    const res = await fetch(DATA_URL + '?t=' + Date.now(), { cache: 'no-store' });
+    if(!res.ok) throw new Error('data.json not available');
+    const json = await res.json();
+    const parsed = (json.logs || []).map(l => ({ time: asNumber(l.time), count: asNumber(l.count) }));
+    parsed.sort((a,b)=>a.time-b.time);
+    // if parsed has non-zero counts, use it; otherwise treat as absent
+    const hasRealCounts = parsed.some(p => p.count && p.count > 0);
+    if(hasRealCounts){
+      logs = parsed;
+      localStorage.setItem('sharedLogs', JSON.stringify(logs));
+      return true;
+    } else {
+      // maybe old broken logs (zeros). fall through to localStorage/seed.
+      throw new Error('data.json contains no real counts');
+    }
+  } catch(e){
+    console.warn('fetchDataJson failed:', e);
+    // try localStorage
+    const cached = localStorage.getItem('sharedLogs');
+    if(cached){
+      try{
+        const parsed = JSON.parse(cached);
+        if(Array.isArray(parsed) && parsed.length){
+          logs = parsed.map(l => ({time: asNumber(l.time), count: asNumber(l.count)}));
+          logs.sort((a,b)=>a.time-b.time);
+          return true;
+        }
+      }catch(err){
+        console.warn('localStorage parse failed', err);
+      }
+    }
+    // nothing available — we'll generate seeded logs
+    logs = generateSeedLogs();
+    localStorage.setItem('sharedLogs', JSON.stringify(logs));
+    return false;
+  }
+}
 
-function updateSubs(){
-  logs = generateLogs(); // start with seed logs
-  const latest = logs[logs.length-1].count;
-  document.getElementById('count').textContent = latest.toLocaleString('en-IN');
+// Live fetch from reddit (best-effort). This may fail due to CORS/rate-limits.
+async function fetchLiveCount(){
+  try {
+    const res = await fetch(`https://www.reddit.com/r/${SUBREDDIT}/about.json?raw_json=1`, { cache:'no-store' });
+    if(!res.ok) throw new Error('reddit fetch failed ' + res.status);
+    const json = await res.json();
+    const count = Number(json?.data?.subscribers || 0);
+    if(count && count > 0) return count;
+    throw new Error('reddit returned invalid count');
+  } catch(e){
+    console.warn('Live reddit fetch failed:', e);
+    return null;
+  }
+}
 
-  const now = new Date();
-  const istNow = new Date(now.toLocaleString('en-US', { timeZone:'Asia/Kolkata' }));
-  const year=istNow.getFullYear(), month=istNow.getMonth(), day=istNow.getDate();
-  const bDay=new Date(year,month,day,0,0,0,0);
-  const bMonth=new Date(year,month,1,0,0,0,0);
-  const bYear=new Date(year,0,1,0,0,0,0);
-  const dayOfWeek=istNow.getDay();
-  const daysToSubtract=(dayOfWeek===0?6:(dayOfWeek-1));
-  const bWeek=new Date(bDay.getTime() - daysToSubtract*24*60*60*1000);
+// Generate realistic seeded logs (daily across 12 months + hourly for last 30 days)
+function generateSeedLogs(){
+  const now = Date.now();
+  const startCount = LATEST_COUNT - GROWTH_YEAR;
+  const totalDays = 365;
 
-  function baseline(start){
-    const found = logs.slice().reverse().find(l=>l.time<=start);
-    return found?found.count:logs[0].count;
+  const daily = [];
+  for(let d=0; d<=totalDays; d++){
+    const frac = d / totalDays;
+    const time = now - (totalDays - d) * DAY_MS;
+    // smooth curve (slight non-linearity)
+    const base = Math.round(startCount + GROWTH_YEAR * Math.pow(frac, 1.05));
+    // small jitter more realistic
+    const jitter = Math.round((Math.random()-0.5) * 150);
+    daily.push({ time: time, count: Math.max(0, base + jitter) });
   }
 
-  document.getElementById('dailyGrowth').textContent = formatNum(latest - baseline(bDay));
-  document.getElementById('dailyPrev').textContent = 'from ' + toISTDate(bDay);
-  document.getElementById('weeklyGrowth').textContent = formatNum(latest - baseline(bWeek));
-  document.getElementById('weeklyPrev').textContent = 'from ' + toISTDate(bWeek);
-  document.getElementById('monthlyGrowth').textContent = formatNum(latest - baseline(bMonth));
-  document.getElementById('monthlyPrev').textContent = 'from ' + toISTDate(bMonth);
-  document.getElementById('yearlyGrowth').textContent = formatNum(latest - baseline(bYear));
-  document.getElementById('yearlyPrev').textContent = 'from ' + toISTDate(bYear);
+  // hourly points for last 30 days (finer resolution)
+  const hourly = [];
+  const hours = 30 * 24;
+  for(let h=0; h<=hours; h++){
+    const time = now - (hours - h) * HOUR_MS;
+    // map to overall fraction across 365 days:
+    const dayIndex = totalDays - 30 + (h / 24);
+    const frac = Math.max(0, Math.min(1, dayIndex / totalDays));
+    const base = Math.round(startCount + GROWTH_YEAR * Math.pow(frac, 1.05));
+    const jitter = Math.round((Math.random()-0.5) * 80);
+    hourly.push({ time: time, count: Math.max(0, base + jitter) });
+  }
 
-  document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata', dateStyle:'medium', timeStyle:'short' });
+  // combine, prefer hourly entries where timestamps overlap
+  const map = new Map();
+  daily.forEach(p => map.set(p.time, p.count));
+  hourly.forEach(p => map.set(p.time, p.count)); // overrides daily for those timestamps
+  // ensure final exact now point equals LATEST_COUNT
+  map.set(now, LATEST_COUNT);
+
+  // convert map back to sorted array
+  const combined = Array.from(map.entries()).map(([time,count])=>({time, count}));
+  combined.sort((a,b)=>a.time-b.time);
+  return combined;
+}
+
+function getLatest(){ return logs.length ? logs[logs.length-1] : { time: Date.now(), count: LATEST_COUNT }; }
+
+// find last log on or before startMs
+function baseline(startMs){
+  for(let i = logs.length - 1; i >= 0; i--){
+    if (logs[i].time <= startMs) return logs[i].count;
+  }
+  return logs.length ? logs[0].count : LATEST_COUNT;
+}
+
+// Build IST midnight timestamp for given Y/M/D
+function istMidnightMs(year, monthIndex, day){
+  // build ISO string with +05:30 offset to create exact IST midnight instant
+  const mm = String(monthIndex+1).padStart(2,'0');
+  const dd = String(day).padStart(2,'0');
+  const iso = `${year}-${mm}-${dd}T00:00:00+05:30`;
+  return new Date(iso).getTime();
+}
+
+async function updateSubs(){
+  // Try to fetch data.json (preferred); if not available we will have seeded logs
+  await fetchDataJson();
+
+  // Try live fetch for the very latest count for immediate display
+  const liveCount = await fetchLiveCount();
+
+  // If live count present, append locally to logs so UI reflects latest instantly (won't push to repo)
+  if(liveCount && (!logs.length || logs[logs.length-1].count !== liveCount)){
+    const nowMs = Date.now();
+    logs.push({ time: nowMs, count: liveCount });
+    // keep last 10000 in local copy
+    if(logs.length > 10000) logs = logs.slice(-10000);
+    localStorage.setItem('sharedLogs', JSON.stringify(logs));
+  }
+
+  const latest = (liveCount || (logs.length ? logs[logs.length-1].count : LATEST_COUNT));
+  document.getElementById('count').textContent = formatNumberIndian(latest);
+
+  // IST-aware starts
+  const now = new Date();
+  const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const year = istNow.getFullYear(), month = istNow.getMonth(), day = istNow.getDate();
+
+  const bDayMs = istMidnightMs(year, month, day);
+  const bMonthMs = istMidnightMs(year, month, 1);
+  const bYearMs = istMidnightMs(year, 0, 1);
+  const dayOfWeek = istNow.getDay(); // Sunday=0
+  const daysToMonday = (dayOfWeek === 0) ? 6 : (dayOfWeek - 1);
+  const bWeekMs = bDayMs - daysToMonday * DAY_MS;
+
+  // baselines - if no log found for that time, fall back to seed deltas
+  const baseDay = baseline(bDayMs) || (latest - GROWTH_TODAY);
+  const baseWeek = baseline(bWeekMs) || (latest - GROWTH_WEEK);
+  const baseMonth = baseline(bMonthMs) || (latest - GROWTH_MONTH);
+  const baseYear = baseline(bYearMs) || (latest - GROWTH_YEAR);
+
+  document.getElementById('dailyGrowth').textContent = formatGrowth(latest - baseDay);
+  document.getElementById('dailyPrev').textContent = 'from ' + toISTDate(bDayMs);
+  document.getElementById('weeklyGrowth').textContent = formatGrowth(latest - baseWeek);
+  document.getElementById('weeklyPrev').textContent = 'from ' + toISTDate(bWeekMs);
+  document.getElementById('monthlyGrowth').textContent = formatGrowth(latest - baseMonth);
+  document.getElementById('monthlyPrev').textContent = 'from ' + toISTDate(bMonthMs);
+  document.getElementById('yearlyGrowth').textContent = formatGrowth(latest - baseYear);
+  document.getElementById('yearlyPrev').textContent = 'from ' + toISTDate(bYearMs);
+
+  document.getElementById('lastUpdated').textContent =
+    'Last updated: ' + new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata', dateStyle:'medium', timeStyle:'short' });
 
   renderChart();
 }
 
+// Render Chart.js with data points {x: time, y: count}
 function renderChart(){
-  const ctx=document.getElementById('growthChart').getContext('2d');
-  const now=Date.now();
-  const rangeMs={'24h':24*60*60*1000,'7d':7*24*60*60*1000,'30d':30*24*60*60*1000,'12m':365*24*60*60*1000}[currentRange];
-  const filtered=logs.filter(l=>l.time>=now-rangeMs);
-  const labels=filtered.map(l=>l.time);
-  const data=filtered.map(l=>l.count);
+  const canvas = document.getElementById('growthChart');
+  const ctx = canvas.getContext('2d');
+  if(!logs.length) return;
 
-  if(chart){chart.destroy(); chart=null;}
+  const now = Date.now();
+  const rangeMs = { '24h': 24*HOUR_MS, '7d': 7*DAY_MS, '30d': 30*DAY_MS, '12m': 365*DAY_MS }[currentRange];
+  let filtered = logs.filter(l => l.time >= now - rangeMs);
 
-  chart=new Chart(ctx,{
-    type:'line',
-    data:{labels,datasets:[{label:'Subscribers',data,borderColor:'#4CAF50',backgroundColor:'rgba(76,175,80,0.2)',tension:0.3,pointRadius:1,fill:true}]},
-    options:{
-      responsive:true,
-      maintainAspectRatio:false,
-      scales:{
-        x:{
-          type:'time',
-          time:{
-            unit: currentRange==='24h'?'hour':(currentRange==='7d'?'day':(currentRange==='30d'?'day':'month')),
-            tooltipFormat:'MMM d, yyyy, h:mm a',
-            displayFormats:{hour:'h a', day:'MMM d', month:'MMM yyyy'}
+  // If filtered is empty, include the last available point to anchor the chart
+  if(filtered.length === 0 && logs.length){
+    const last = logs[logs.length-1];
+    filtered = [last];
+  } else {
+    // Ensure first point includes the last point before the range so line starts correctly
+    const firstInRange = filtered[0];
+    const before = logs.slice().reverse().find(l => l.time < (firstInRange ? firstInRange.time : now - rangeMs));
+    if(before) filtered.unshift(before);
+  }
+
+  const dataPoints = filtered.map(p => ({ x: p.time, y: p.count }));
+
+  if(chart){
+    chart.destroy();
+    chart = null;
+  }
+
+  // choose time unit
+  const unit = currentRange === '24h' ? 'hour' : (currentRange === '7d' ? 'day' : (currentRange === '30d' ? 'day' : 'month'));
+
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [{
+        label: 'Subscribers',
+        data: dataPoints,
+        borderColor: '#4CAF50',
+        backgroundColor: 'rgba(76,175,80,0.12)',
+        tension: 0.25,
+        pointRadius: 1,
+        fill: true
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      parsing: false,
+      normalized: true,
+      scales: {
+        x: {
+          type: 'time',
+          time: {
+            unit: unit,
+            tooltipFormat: 'MMM d, yyyy, h:mm a',
+            displayFormats: {
+              hour: 'h a',
+              day: 'dd MMM',
+              month: 'MMM yyyy'
+            }
           },
-          ticks:{color:'rgba(255,255,255,0.5)'},
-          grid:{color:'rgba(255,255,255,0.1)'}
+          ticks: { color: 'rgba(255,255,255,0.7)' },
+          grid: { color: 'rgba(255,255,255,0.06)' }
         },
-        y:{ticks:{color:'rgba(255,255,255,0.5)',callback:function(value){return value>=1000?(value/1000)+'K':value;}},
-           grid:{color:'rgba(255,255,255,0.1)'}
+        y: {
+          ticks: {
+            color: 'rgba(255,255,255,0.7)',
+            callback: function(val){
+              // show 1000 -> 1K, keep integers otherwise
+              const v = Number(val);
+              if (Math.abs(v) >= 1000) {
+                return (v/1000).toFixed(v%1000 === 0 ? 0 : 1) + 'K';
+              }
+              return v.toLocaleString('en-IN');
+            }
+          },
+          grid: { color: 'rgba(255,255,255,0.06)' }
         }
       },
-      plugins:{legend:{display:false}}
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(context){
+              const v = context.parsed.y;
+              return 'Subscribers: ' + formatNumberIndian(v);
+            }
+          }
+        }
+      }
     }
   });
 }
 
+// Tab buttons
 document.querySelectorAll('.tab-btn').forEach(btn=>{
-  btn.addEventListener('click',()=>{
+  btn.addEventListener('click', ()=>{
     document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
-    currentRange=btn.dataset.range;
+    currentRange = btn.dataset.range;
     renderChart();
   });
 });
 
-// Init
+// Init: try to load data.json (or seed) and render chart
 updateSubs();
+
+// Optional hourly auto-refresh in-browser (keeps UI current)
+setInterval(() => {
+  updateSubs().catch(e => console.warn('auto update failed', e));
+}, 60*60*1000);
 </script>
 </body>
 </html>
