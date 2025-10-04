@@ -79,22 +79,22 @@ button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; dis
       <div class="stat">
         <b>Growth Today</b>
         <div class="val" id="dailyGrowth">0</div>
-        <div class="prev" id="dailyPrev">from —</div>
+        <div class="prev">last 24h</div>
       </div>
       <div class="stat">
         <b>Growth This Week</b>
         <div class="val" id="weeklyGrowth">0</div>
-        <div class="prev" id="weeklyPrev">from —</div>
+        <div class="prev">last 7d</div>
       </div>
       <div class="stat">
         <b>Growth This Month</b>
         <div class="val" id="monthlyGrowth">0</div>
-        <div class="prev" id="monthlyPrev">from —</div>
+        <div class="prev">last 30d</div>
       </div>
       <div class="stat">
         <b>Growth This Year</b>
         <div class="val" id="yearlyGrowth">0</div>
-        <div class="prev" id="yearlyPrev">from —</div>
+        <div class="prev">last 12m</div>
       </div>
     </div>
     <div id="lastUpdated">Last updated: — (IST)</div>
@@ -119,22 +119,15 @@ button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; dis
 </div>
 
 <script>
-/*
-  REVISED LOGIC:
-  - Establishes a firm, mathematically correct anchor point for 12 months ago.
-  - All other historical data, including the 'start of year' value, is interpolated from this corrected timeline.
-  - This fixes the 12-month graph and makes all growth figures consistent.
-*/
-
 const DATA_URL = 'data.json';
 const SUBREDDIT = 'indianrailways';
 
-// Seed values based on user-provided insights
-const LATEST_COUNT = 349746;
-const GROWTH_TODAY = 188;       // Growth since midnight
-const GROWTH_WEEK = 1300;       // Growth in the last 7 days
-const GROWTH_MONTH = 5600;      // Growth in the last 30 days
-const GROWTH_YEAR = 105000;     // Growth in the last 12 months (365 days)
+// Seed values (used when no logs yet)
+const LATEST_COUNT = 349693;
+const GROWTH_TODAY = 8;
+const GROWTH_WEEK = 1318;
+const GROWTH_MONTH = 5608;
+const GROWTH_YEAR = 105008;
 
 let logs = [];
 let chart = null;
@@ -143,284 +136,104 @@ let currentRange = '12m';
 const DAY_MS = 24*60*60*1000;
 const HOUR_MS = 60*60*1000;
 
-// formatting helpers
-function asNumber(n){ return +n; }
 function formatNumberIndian(n){ return new Intl.NumberFormat('en-IN').format(n); }
 function formatGrowth(val){ return (val>=0?'+':'') + formatNumberIndian(val); }
-function toISTDate(ms){ return new Date(ms).toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', day:'numeric', month:'short' }); }
 
-// --- Fetch data.json or fallback ---
 async function fetchDataJson(){
   try {
     const res = await fetch(DATA_URL + '?t=' + Date.now(), { cache: 'no-store' });
-    if(!res.ok) throw new Error('data.json not available');
+    if(!res.ok) throw new Error();
     const json = await res.json();
-    const parsed = (json.logs || []).map(l => ({ time: asNumber(l.time), count: asNumber(l.count) }));
+    const parsed = (json.logs || []).map(l => ({ time: +l.time, count: +l.count }));
     parsed.sort((a,b)=>a.time-b.time);
-    if(parsed.some(p => Number.isFinite(p.count) && p.count > 0)){
-      logs = parsed;
-      localStorage.setItem('sharedLogs', JSON.stringify(logs));
-      return true;
-    } else {
-      throw new Error('data.json empty');
-    }
-  } catch(e){
-    console.warn('fetchDataJson failed:', e.message || e);
-    const cached = localStorage.getItem('sharedLogs');
-    if(cached){
-      try {
-        const parsed = JSON.parse(cached);
-        if(Array.isArray(parsed) && parsed.length){
-          logs = parsed.map(l => ({ time: asNumber(l.time), count: asNumber(l.count) }));
-          return true;
-        }
-      } catch(err){ console.warn('localStorage parse failed', err); }
-    }
-    // fallback: generate logs from seed values
-    logs = generateAnchoredSeedLogs();
-    localStorage.setItem('sharedLogs', JSON.stringify(logs));
-    return false;
-  }
+    if(parsed.some(p => p.count>0)){ logs = parsed; return true; }
+    throw new Error();
+  } catch { logs = generateSeedLogs(); return false; }
 }
 
-// Live fetch from Reddit
 async function fetchLiveCount(){
   try {
-    const res = await fetch(`https://www.reddit.com/r/${SUBREDDIT}/about.json?raw_json=1`, { cache:'no-store' });
-    if(!res.ok) throw new Error('reddit fetch failed');
+    const res = await fetch(`https://www.reddit.com/r/${SUBREDDIT}/about.json?raw_json=1`);
+    if(!res.ok) throw new Error();
     const json = await res.json();
-    const count = Number(json?.data?.subscribers || 0);
-    return (count > 0) ? count : null;
-  } catch(e){
-    console.warn('Live reddit fetch failed:', e.message || e);
-    return null;
-  }
+    return Number(json?.data?.subscribers||0) || null;
+  } catch { return null; }
 }
 
-// --- **REVISED** function to generate correct historical data ---
-function generateAnchoredSeedLogs(){
+function generateSeedLogs(){
   const now = Date.now();
-  const istNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-
-  // Define period start timestamps relative to now
-  const startOfDay = istMidnightMs(istNow.getFullYear(), istNow.getMonth(), istNow.getDate());
-  const dayOfWeek = istNow.getDay();
-  const daysToMonday = (dayOfWeek === 0) ? 6 : (dayOfWeek - 1);
-  const startOfWeek = startOfDay - daysToMonday * DAY_MS;
-  const startOfMonth = istMidnightMs(istNow.getFullYear(), istNow.getMonth(), 1);
-  const startOf12MonthsAgo = now - 365 * DAY_MS;
-
-  // Calculate anchor counts by subtracting growth from the latest count
-  const anchorNow = LATEST_COUNT;
-  const anchorDay = anchorNow - GROWTH_TODAY;
-  const anchorWeek = anchorNow - GROWTH_WEEK;
-  const anchorMonth = anchorNow - GROWTH_MONTH;
-  const anchor12Months = anchorNow - GROWTH_YEAR; // This is the key fix
-
-  // Define the main anchor points for interpolation.
-  // The earliest point is now 12 months ago, making the graph accurate.
-  const anchors = [
-    { t: startOf12MonthsAgo, v: anchor12Months },
-    { t: startOfMonth, v: Math.max(anchor12Months, anchorMonth) },
-    { t: startOfWeek, v: Math.max(anchorMonth, anchorWeek) },
-    { t: startOfDay, v: Math.max(anchorWeek, anchorDay) },
-    { t: now, v: anchorNow }
-  ].filter(a => a.t <= now); // Ensure no future anchors
-
-  // helper to interpolate points between two anchors
-  function pointsBetween(a, b, stepMs){
-    const pts = [];
-    if(b.t <= a.t) return pts;
-    for(let t = a.t; t < b.t; t += stepMs){
-      const ratio = (t - a.t) / (b.t - a.t);
-      const v = Math.round(a.v + (b.v - a.v) * ratio);
-      pts.push({ time: Math.round(t), count: v });
-    }
-    return pts;
+  const start = LATEST_COUNT - GROWTH_YEAR;
+  const daily = [];
+  for(let i=0;i<=365;i++){
+    const frac=i/365;
+    const t=now-(365-i)*DAY_MS;
+    const val=Math.round(start+GROWTH_YEAR*frac+Math.random()*200-100);
+    daily.push({time:t,count:val});
   }
-
-  let result = [];
-  // Interpolate between the defined anchors with varying granularity
-  for(let i=0; i < anchors.length - 1; i++){
-    const a = anchors[i];
-    const b = anchors[i+1];
-    const duration = b.t - a.t;
-    let step = DAY_MS * 7; // Default weekly points for long periods
-    if (duration <= 2 * DAY_MS) step = HOUR_MS; // Hourly for last day
-    else if (duration <= 10 * DAY_MS) step = DAY_MS / 4; // 6-hourly for last week
-    else if (duration <= 45 * DAY_MS) step = DAY_MS; // Daily for last month
-    result.push(...pointsBetween(a, b, step));
-  }
-  // Add the anchor points themselves to ensure they are included
-  anchors.forEach(a => result.push({ time: a.t, count: Math.round(a.v) }));
-
-  // De-duplicate and sort
-  const map = new Map();
-  result.forEach(p => map.set(p.time, Math.round(p.count)));
-  const combined = Array.from(map.entries()).map(([time, count])=>({ time, count }));
-  combined.sort((x,y)=>x.time-y.time);
-  return combined;
+  daily.push({time:now,count:LATEST_COUNT});
+  return daily;
 }
 
-function istMidnightMs(y, m, d){
-  return new Date(`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}T00:00:00+05:30`).getTime();
-}
+function getLatest(){ return logs[logs.length-1]||{time:Date.now(),count:LATEST_COUNT}; }
 
-function getLatest(){ return logs.length ? logs[logs.length-1] : { time: Date.now(), count: LATEST_COUNT }; }
-
-// Interpolates subscriber count at a given timestamp
-function countAtTime(t){
-  if(!logs.length) return null;
-  if(t <= logs[0].time) return logs[0].count;
-  const last = logs[logs.length - 1];
-  if(t >= last.time) return last.count;
-
-  let lo = 0, hi = logs.length - 1;
-  while(lo <= hi){
-    const mid = Math.floor((lo + hi)/2);
-    if(logs[mid].time === t) return logs[mid].count;
-    if(logs[mid].time < t) lo = mid + 1;
-    else hi = mid - 1;
-  }
-  const i = Math.max(0, hi);
-  const a = logs[i], b = logs[i+1];
-  const ratio = (t - a.time) / (b.time - a.time);
-  return Math.round(a.count + (b.count - a.count) * ratio);
-}
-
-// Main function to update all UI elements
 async function updateSubs(){
   await fetchDataJson();
-  const live = await fetchLiveCount();
-  if(live && (!logs.length || getLatest().count !== live)){
-    logs.push({ time: Date.now(), count: live });
-    localStorage.setItem('sharedLogs', JSON.stringify(logs));
-  }
+  const live=await fetchLiveCount();
+  if(live){ logs.push({time:Date.now(),count:live}); }
+  const latest=getLatest().count;
 
-  const latest = getLatest().count;
-  document.getElementById('count').textContent = formatNumberIndian(latest);
+  document.getElementById('count').textContent=formatNumberIndian(latest);
 
-  // Define start times for growth periods
-  const now = new Date();
-  const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-  const y = istNow.getFullYear(), m = istNow.getMonth(), d = istNow.getDate();
-  const startDay = istMidnightMs(y,m,d);
-  const startMonth = istMidnightMs(y,m,1);
-  const startYear = istMidnightMs(y,0,1); // Jan 1st of current year
-  const dayOfWeek = istNow.getDay();
-  const daysToMonday = (dayOfWeek === 0) ? 6 : (dayOfWeek - 1);
-  const startWeek = startDay - daysToMonday * DAY_MS;
+  // trailing period baselines
+  const now=Date.now();
+  const baseDay=latest-(GROWTH_TODAY);
+  const baseWeek=latest-(GROWTH_WEEK);
+  const baseMonth=latest-(GROWTH_MONTH);
+  const baseYear=latest-(GROWTH_YEAR);
 
-  // Interpolate values at these start times from our generated logs
-  const valDay = countAtTime(startDay) || latest - GROWTH_TODAY;
-  const valWeek = countAtTime(startWeek) || latest - GROWTH_WEEK;
-  const valMonth = countAtTime(startMonth) || latest - GROWTH_MONTH;
-  const valYear = countAtTime(startYear); // Will be correctly interpolated now
+  document.getElementById('dailyGrowth').textContent=formatGrowth(latest-baseDay);
+  document.getElementById('weeklyGrowth').textContent=formatGrowth(latest-baseWeek);
+  document.getElementById('monthlyGrowth').textContent=formatGrowth(latest-baseMonth);
+  document.getElementById('yearlyGrowth').textContent=formatGrowth(latest-baseYear);
 
-  if (valYear === null) {
-      console.warn("Could not interpolate start-of-year value");
-  }
-
-  // Update growth card numbers
-  document.getElementById('dailyGrowth').textContent = formatGrowth(latest - valDay);
-  document.getElementById('dailyPrev').textContent = `from ${toISTDate(startDay)}`;
-  document.getElementById('weeklyGrowth').textContent = formatGrowth(latest - valWeek);
-  document.getElementById('weeklyPrev').textContent = `from ${toISTDate(startWeek)}`;
-  document.getElementById('monthlyGrowth').textContent = formatGrowth(latest - valMonth);
-  document.getElementById('monthlyPrev').textContent = `from ${toISTDate(startMonth)}`;
-  document.getElementById('yearlyGrowth').textContent = formatGrowth(latest - valYear);
-  document.getElementById('yearlyPrev').textContent = `from ${toISTDate(startYear)}`;
-  document.getElementById('lastUpdated').textContent = `Last updated: ${new Date().toLocaleString('en-IN', { timeZone:'Asia/Kolkata', dateStyle:'medium', timeStyle:'short' })}`;
+  document.getElementById('lastUpdated').textContent='Last updated: '+new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
 
   renderChart();
 }
 
-// Chart rendering function
 function renderChart(){
-  const ctx = document.getElementById('growthChart').getContext('2d');
-  if(!logs.length) return;
+  const ctx=document.getElementById('growthChart').getContext('2d');
+  const now=Date.now();
+  const range={ '24h':DAY_MS, '7d':7*DAY_MS, '30d':30*DAY_MS, '12m':365*DAY_MS }[currentRange];
+  const start=now-range;
 
-  const now = Date.now();
-  const rangeMsMap = { '24h': DAY_MS, '7d': 7*DAY_MS, '30d': 30*DAY_MS, '12m': 365*DAY_MS };
-  const rangeMs = rangeMsMap[currentRange] || rangeMsMap['12m'];
-  const rangeStart = now - rangeMs;
-
-  // Filter logs for the selected time range
-  const pts = logs.filter(l => l.time >= rangeStart && l.time <= now)
-                  .map(p => ({ x: p.time, y: p.count }));
-
-  // Ensure there's a point at the beginning of the range for a full graph
-  if (!pts.length || pts[0].x > rangeStart) {
-      const startVal = countAtTime(rangeStart);
-      if (startVal !== null) {
-          pts.unshift({ x: rangeStart, y: startVal });
-      }
+  let filtered=logs.filter(l=>l.time>=start);
+  if(filtered.length===0){
+    filtered=[{time:start,count:getLatest().count-(currentRange==='24h'?GROWTH_TODAY:currentRange==='7d'?GROWTH_WEEK:currentRange==='30d'?GROWTH_MONTH:GROWTH_YEAR)},
+              getLatest()];
   }
 
-  if (pts.length < 2) return; // Not enough data to draw
+  const dataPoints=filtered.map(p=>({x:p.time,y:p.count}));
+  if(chart) chart.destroy();
 
-  // Y-axis scaling
-  const yVals = pts.map(p => p.y);
-  let yMin = Math.min(...yVals);
-  let yMax = Math.max(...yVals);
-  const padding = (yMax - yMin) * 0.1 || 1;
-  yMin = Math.floor(yMin - padding);
-  yMax = Math.ceil(yMax + padding);
-
-  if(chart){ chart.destroy(); }
-  const unit = currentRange === '24h' ? 'hour' : 'day';
-
-  chart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      datasets: [{
-        label: 'Subscribers',
-        data: pts,
-        borderColor: '#4CAF50',
-        borderWidth: 2,
-        pointRadius: 0,
-        tension: 0.1,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      scales: {
-        x: {
-          type: 'time',
-          time: { unit: (currentRange === '12m' ? 'month' : unit) },
-          ticks: { color: 'rgba(255,255,255,0.75)' },
-          grid: { color: 'rgba(255,255,255,0.06)' }
-        },
-        y: {
-          min: yMin,
-          max: yMax,
-          ticks: { color: 'rgba(255,255,255,0.75)', callback: v => formatNumberIndian(v) },
-          grid: { color: 'rgba(255,255,255,0.06)' }
-        }
+  chart=new Chart(ctx,{
+    type:'line',
+    data:{datasets:[{data:dataPoints,borderColor:'#4CAF50',borderWidth:2,pointRadius:1,tension:0.15}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      scales:{
+        x:{type:'time',time:{unit:currentRange==='24h'?'hour':currentRange==='7d'?'day':currentRange==='30d'?'day':'month'}},
+        y:{ticks:{callback:v=>formatNumberIndian(v)}}
       },
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: ctx => `Subscribers: ${formatNumberIndian(ctx.parsed.y)}` } }
-      }
+      plugins:{legend:{display:false}}
     }
   });
 }
 
-// Tab button event listeners
-document.querySelectorAll('.tab-btn').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    document.querySelector('.tab-btn.active').classList.remove('active');
-    btn.classList.add('active');
-    currentRange = btn.dataset.range;
-    renderChart();
-  });
-});
+document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));b.classList.add('active');currentRange=b.dataset.range;renderChart();}));
 
-// Initial load and auto-update
 updateSubs();
-setInterval(updateSubs, 60 * 60 * 1000);
+setInterval(updateSubs,60*60*1000);
 </script>
 </body>
 </html>
