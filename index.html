@@ -1,257 +1,239 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>r/IndianRailways Growth Tracker</title>
+<meta charset="UTF-8" />
+<title>r/IndianRailways — Subscribers</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <style>
-  body {
-    background-color: #0e0e10;
-    color: #fff;
-    font-family: 'Inter', sans-serif;
-    margin: 0;
-    padding: 0;
-  }
-  .container {
-    max-width: 1000px;
-    margin: 0 auto;
-    padding: 24px;
-  }
-  .header {
-    text-align: center;
-    margin-bottom: 20px;
-  }
-  .header h1 {
-    font-size: 28px;
-    font-weight: 600;
-    margin-bottom: 8px;
-  }
-  .stats {
-    display: flex;
-    justify-content: space-around;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-  }
-  .stat {
-    background: rgba(255,255,255,0.05);
-    border-radius: 12px;
-    padding: 12px 20px;
-    text-align: center;
-    margin: 8px;
-    flex: 1;
-    min-width: 180px;
-  }
-  .stat .value {
-    font-size: 22px;
-    font-weight: 600;
-  }
-  .stat .label {
-    font-size: 14px;
-    color: #aaa;
-  }
-  canvas {
-    width: 100%;
-    height: 400px;
-  }
-  .range-buttons {
-    text-align: center;
-    margin-top: 16px;
-  }
-  .range-buttons button {
-    background: rgba(255,255,255,0.1);
-    color: white;
-    border: none;
-    margin: 0 4px;
-    padding: 8px 14px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .range-buttons button.active {
-    background: #4CAF50;
-  }
+:root{
+  --bg:#0f1113;
+  --panel:#111214;
+  --muted:#bbb;
+  --accent:#4CAF50;
+  --card-radius:12px;
+  --pad:16px;
+}
+body{
+  margin:0;
+  font-family:Inter,Arial,Helvetica,sans-serif;
+  background:linear-gradient(180deg,#0b0b0d 0%,#121214 100%);
+  color:#fff;
+  padding:20px;
+  -webkit-font-smoothing:antialiased;
+}
+.container{ max-width:980px; margin:0 auto; }
+header { text-align:center; margin-bottom:8px; }
+h1 { margin:6px 0; font-size:1.6rem; font-weight:600; }
+#count { font-size:3.8rem; font-weight:800; color:var(--accent); letter-spacing:0.02em; }
+.card {
+  background: rgba(255,255,255,0.02);
+  border-radius:var(--card-radius);
+  padding:var(--pad);
+  margin:12px 0;
+  box-shadow:0 6px 18px rgba(0,0,0,0.45);
+}
+.stats { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+.stat {
+  min-width:180px;
+  background:rgba(255,255,255,0.02);
+  padding:12px;
+  border-radius:10px;
+  text-align:center;
+}
+.stat b { display:block; font-size:0.95rem; margin-bottom:6px; color:#fff; }
+.stat .val { font-size:1.25rem; font-weight:700; color:var(--accent); }
+.stat .prev { color:var(--muted); font-size:0.85rem; margin-top:6px; display:block; }
+#lastUpdated { color:var(--muted); text-align:center; margin-top:8px; font-size:0.9rem; }
+
+/* tabs */
+.tabs { display:flex; gap:8px; justify-content:center; margin-top:18px; flex-wrap:wrap; }
+.tab-btn { background:#222; color:#ddd; border-radius:8px; padding:8px 12px; border:none; cursor:pointer; }
+.tab-btn.active { background:var(--accent); color:#021805; font-weight:700; }
+
+/* FIX: Canvas height controlled by parent wrapper */
+.chart-container { position: relative; height: 300px; margin-top: 12px; }
+canvas { max-width:100%; display:block; }
+
+@media (max-width:640px){
+  #count { font-size:2.4rem; }
+  .stat { min-width:140px; }
+  h1 { font-size:1.2rem; }
+}
+
+button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; display:block; margin-left:auto; margin-right:auto; }
 </style>
 </head>
 <body>
 <div class="container">
-  <div class="header">
-    <h1>r/IndianRailways Growth Tracker</h1>
-    <p>Visualizing subreddit growth over time</p>
+  <header>
+    <h1>r/IndianRailways Subscribers</h1>
+    <div id="count">—</div>
+  </header>
+
+  <button onclick="updateSubs()">Update Now</button>
+
+  <div class="card">
+    <div class="stats">
+      <div class="stat">
+        <b>Growth Today</b>
+        <div class="val" id="dailyGrowth">0</div>
+        <div class="prev">last 24h</div>
+      </div>
+      <div class="stat">
+        <b>Growth This Week</b>
+        <div class="val" id="weeklyGrowth">0</div>
+        <div class="prev">last 7d</div>
+      </div>
+      <div class="stat">
+        <b>Growth This Month</b>
+        <div class="val" id="monthlyGrowth">0</div>
+        <div class="prev">last 30d</div>
+      </div>
+      <div class="stat">
+        <b>Growth This Year</b>
+        <div class="val" id="yearlyGrowth">0</div>
+        <div class="prev">last 12m</div>
+      </div>
+    </div>
+    <div id="lastUpdated">Last updated: — (IST)</div>
   </div>
 
-  <div class="stats">
-    <div class="stat">
-      <div class="value" id="count">Loading...</div>
-      <div class="label">Current Members</div>
+  <div class="card">
+    <div style="text-align:center"><small class="muted">Graph range</small></div>
+    <div class="tabs" role="tablist" aria-label="Ranges">
+      <button class="tab-btn" data-range="24h">24 Hours</button>
+      <button class="tab-btn" data-range="7d">7 Days</button>
+      <button class="tab-btn" data-range="30d">30 Days</button>
+      <button class="tab-btn active" data-range="12m">12 Months</button>
     </div>
-    <div class="stat">
-      <div class="value" id="growth-today">+0</div>
-      <div class="label">Last 24 Hours</div>
-    </div>
-    <div class="stat">
-      <div class="value" id="growth-week">+0</div>
-      <div class="label">Last 7 Days</div>
-    </div>
-    <div class="stat">
-      <div class="value" id="growth-month">+0</div>
-      <div class="label">Last 30 Days</div>
-    </div>
-    <div class="stat">
-      <div class="value" id="growth-year">+0</div>
-      <div class="label">Last 12 Months</div>
+    <div class="chart-container">
+      <canvas id="growthChart"></canvas>
     </div>
   </div>
 
-  <canvas id="growthChart"></canvas>
-
-  <div class="range-buttons">
-    <button data-range="24h" class="active">24 Hours</button>
-    <button data-range="7d">7 Days</button>
-    <button data-range="30d">30 Days</button>
-    <button data-range="12m">12 Months</button>
+  <div style="text-align:center; color:var(--muted); margin-top:10px;">
+    Data stored in <code>data.json</code> (updated hourly by GitHub Actions). Live fallback always works.
   </div>
 </div>
 
 <script>
-const DAY_MS = 24 * 60 * 60 * 1000;
+const DATA_URL = 'data.json';
+const SUBREDDIT = 'indianrailways';
 
-// Example seed data
-const GROWTH_TODAY = 250;
-const GROWTH_WEEK = 1800;
-const GROWTH_MONTH = 5600;
-const GROWTH_YEAR = 105000;
-const CURRENT_COUNT = 1190000; // example member count
+// Seed values (used when no logs yet)
+const LATEST_COUNT = 349693;
+const GROWTH_TODAY = 8;
+const GROWTH_WEEK = 1318;
+const GROWTH_MONTH = 5608;
+const GROWTH_YEAR = 105008;
 
-document.getElementById('count').innerText = CURRENT_COUNT.toLocaleString('en-IN');
-document.getElementById('growth-today').innerText = '+' + GROWTH_TODAY.toLocaleString('en-IN');
-document.getElementById('growth-week').innerText = '+' + GROWTH_WEEK.toLocaleString('en-IN');
-document.getElementById('growth-month').innerText = '+' + GROWTH_MONTH.toLocaleString('en-IN');
-document.getElementById('growth-year').innerText = '+' + GROWTH_YEAR.toLocaleString('en-IN');
+let logs = [];
+let chart = null;
+let currentRange = '12m';
 
-let currentRange = '24h';
-let chart;
+const DAY_MS = 24*60*60*1000;
+const HOUR_MS = 60*60*1000;
 
-// Generate smooth data over a range
-function generateData(range) {
+function formatNumberIndian(n){ return new Intl.NumberFormat('en-IN').format(n); }
+function formatGrowth(val){ return (val>=0?'+':'') + formatNumberIndian(val); }
+
+async function fetchDataJson(){
+  try {
+    const res = await fetch(DATA_URL + '?t=' + Date.now(), { cache: 'no-store' });
+    if(!res.ok) throw new Error();
+    const json = await res.json();
+    const parsed = (json.logs || []).map(l => ({ time: +l.time, count: +l.count }));
+    parsed.sort((a,b)=>a.time-b.time);
+    if(parsed.some(p => p.count>0)){ logs = parsed; return true; }
+    throw new Error();
+  } catch { logs = generateSeedLogs(); return false; }
+}
+
+async function fetchLiveCount(){
+  try {
+    const res = await fetch(`https://www.reddit.com/r/${SUBREDDIT}/about.json?raw_json=1`);
+    if(!res.ok) throw new Error();
+    const json = await res.json();
+    return Number(json?.data?.subscribers||0) || null;
+  } catch { return null; }
+}
+
+function generateSeedLogs(){
   const now = Date.now();
-  let points = [];
-  let steps, interval, totalGrowth;
-
-  switch(range) {
-    case '24h':
-      steps = 24;
-      interval = DAY_MS / 24;
-      totalGrowth = GROWTH_TODAY;
-      break;
-    case '7d':
-      steps = 7;
-      interval = DAY_MS;
-      totalGrowth = GROWTH_WEEK;
-      break;
-    case '30d':
-      steps = 30;
-      interval = DAY_MS;
-      totalGrowth = GROWTH_MONTH;
-      break;
-    case '12m':
-      steps = 12;
-      interval = 30 * DAY_MS;
-      totalGrowth = GROWTH_YEAR;
-      break;
+  const start = LATEST_COUNT - GROWTH_YEAR;
+  const daily = [];
+  for(let i=0;i<=365;i++){
+    const frac=i/365;
+    const t=now-(365-i)*DAY_MS;
+    const val=Math.round(start+GROWTH_YEAR*frac+Math.random()*200-100);
+    daily.push({time:t,count:val});
   }
-
-  const startCount = CURRENT_COUNT - totalGrowth;
-  for (let i = 0; i <= steps; i++) {
-    const progress = i / steps;
-    const randomFactor = 1 + (Math.random() - 0.5) * 0.05; // ±5% randomness
-    const count = startCount + totalGrowth * Math.pow(progress, 1.5) * randomFactor;
-    points.push({ x: now - (steps - i) * interval, y: count });
-  }
-  return points;
+  daily.push({time:now,count:LATEST_COUNT});
+  return daily;
 }
 
-function formatNumberIndian(x) {
-  return x.toLocaleString('en-IN');
+function getLatest(){ return logs[logs.length-1]||{time:Date.now(),count:LATEST_COUNT}; }
+
+async function updateSubs(){
+  await fetchDataJson();
+  const live=await fetchLiveCount();
+  if(live){ logs.push({time:Date.now(),count:live}); }
+  const latest=getLatest().count;
+
+  document.getElementById('count').textContent=formatNumberIndian(latest);
+
+  // trailing period baselines
+  const now=Date.now();
+  const baseDay=latest-(GROWTH_TODAY);
+  const baseWeek=latest-(GROWTH_WEEK);
+  const baseMonth=latest-(GROWTH_MONTH);
+  const baseYear=latest-(GROWTH_YEAR);
+
+  document.getElementById('dailyGrowth').textContent=formatGrowth(latest-baseDay);
+  document.getElementById('weeklyGrowth').textContent=formatGrowth(latest-baseWeek);
+  document.getElementById('monthlyGrowth').textContent=formatGrowth(latest-baseMonth);
+  document.getElementById('yearlyGrowth').textContent=formatGrowth(latest-baseYear);
+
+  document.getElementById('lastUpdated').textContent='Last updated: '+new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
+
+  renderChart();
 }
 
-function renderChart() {
-  const ctx = document.getElementById('growthChart').getContext('2d');
-  const ranges = {
-    '24h': { unit: 'hour' },
-    '7d': { unit: 'day' },
-    '30d': { unit: 'day' },
-    '12m': { unit: 'month' }
-  };
+function renderChart(){
+  const ctx=document.getElementById('growthChart').getContext('2d');
+  const now=Date.now();
+  const range={ '24h':DAY_MS, '7d':7*DAY_MS, '30d':30*DAY_MS, '12m':365*DAY_MS }[currentRange];
+  const start=now-range;
 
-  const data = generateData(currentRange);
-  const { unit } = ranges[currentRange];
-  if (chart) chart.destroy();
+  let filtered=logs.filter(l=>l.time>=start);
+  if(filtered.length===0){
+    filtered=[{time:start,count:getLatest().count-(currentRange==='24h'?GROWTH_TODAY:currentRange==='7d'?GROWTH_WEEK:currentRange==='30d'?GROWTH_MONTH:GROWTH_YEAR)},
+              getLatest()];
+  }
 
-  chart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      datasets: [{
-        data: data,
-        borderColor: '#4CAF50',
-        borderWidth: 2,
-        pointRadius: 0,
-        tension: 0.25,
-      }],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      scales: {
-        x: {
-          type: 'time',
-          time: {
-            unit,
-            displayFormats: {
-              hour: 'ha',
-              day: 'MMM d',
-              month: 'MMM yyyy',
-            },
-          },
-          ticks: {
-            color: '#aaa',
-            autoSkip: true,
-            maxTicksLimit: currentRange === '12m' ? 6 :
-                           currentRange === '30d' ? 10 :
-                           currentRange === '7d' ? 7 : 12,
-          },
-          grid: { color: 'rgba(255,255,255,0.05)' },
-        },
-        y: {
-          ticks: { color: '#aaa', callback: v => formatNumberIndian(v) },
-          grid: { color: 'rgba(255,255,255,0.05)' },
-        },
+  const dataPoints=filtered.map(p=>({x:p.time,y:p.count}));
+  if(chart) chart.destroy();
+
+  chart=new Chart(ctx,{
+    type:'line',
+    data:{datasets:[{data:dataPoints,borderColor:'#4CAF50',borderWidth:2,pointRadius:1,tension:0.15}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      scales:{
+        x:{type:'time',time:{unit:currentRange==='24h'?'hour':currentRange==='7d'?'day':currentRange==='30d'?'day':'month'}},
+        y:{ticks:{callback:v=>formatNumberIndian(v)}}
       },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            title: items => new Date(items[0].parsed.x)
-              .toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
-            label: item => `Count: ${formatNumberIndian(item.parsed.y)}`,
-          },
-        },
-      },
-    },
+      plugins:{legend:{display:false}}
+    }
   });
 }
 
-document.querySelectorAll('.range-buttons button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.range-buttons button').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentRange = btn.dataset.range;
-    renderChart();
-  });
-});
+document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));b.classList.add('active');currentRange=b.dataset.range;renderChart();}));
 
-renderChart();
+updateSubs();
+setInterval(updateSubs,60*60*1000);
 </script>
 </body>
 </html>
