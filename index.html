@@ -1,297 +1,205 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="UTF-8" />
-<title>r/IndianRailways — Subscribers</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<style>
-:root{
-  --bg:#0f1113;
-  --panel:#111214;
-  --muted:#bbb;
-  --accent:#4CAF50;
-  --card-radius:12px;
-  --pad:16px;
-}
-body{
-  margin:0;
-  font-family:Inter,Arial,Helvetica,sans-serif;
-  background:linear-gradient(180deg,#0b0b0d 0%,#121214 100%);
-  color:#fff;
-  padding:20px;
-  -webkit-font-smoothing:antialiased;
-}
-.container{ max-width:980px; margin:0 auto; }
-header { text-align:center; margin-bottom:8px; }
-h1 { margin:6px 0; font-size:1.6rem; font-weight:600; }
-#count { font-size:3.8rem; font-weight:800; color:var(--accent); letter-spacing:0.02em; }
-.card {
-  background: rgba(255,255,255,0.02);
-  border-radius:var(--card-radius);
-  padding:var(--pad);
-  margin:12px 0;
-  box-shadow:0 6px 18px rgba(0,0,0,0.45);
-}
-.stats { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
-.stat {
-  min-width:180px;
-  background:rgba(255,255,255,0.02);
-  padding:12px;
-  border-radius:10px;
-  text-align:center;
-}
-.stat b { display:block; font-size:0.95rem; margin-bottom:6px; color:#fff; }
-.stat .val { font-size:1.25rem; font-weight:700; color:var(--accent); }
-.stat .prev { color:var(--muted); font-size:0.85rem; margin-top:6px; display:block; }
-#lastUpdated { color:var(--muted); text-align:center; margin-top:8px; font-size:0.9rem; }
-
-.tabs { display:flex; gap:8px; justify-content:center; margin-top:18px; flex-wrap:wrap; }
-.tab-btn { background:#222; color:#ddd; border-radius:8px; padding:8px 12px; border:none; cursor:pointer; }
-.tab-btn.active { background:var(--accent); color:#021805; font-weight:700; }
-
-.chart-container { position: relative; height: 300px; margin-top: 12px; }
-canvas { max-width:100%; display:block; }
-
-@media (max-width:640px){
-  #count { font-size:2.4rem; }
-  .stat { min-width:140px; }
-  h1 { font-size:1.2rem; }
-}
-
-button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; display:block; margin-left:auto; margin-right:auto; }
-</style>
-</head>
-<body>
-<div class="container">
-  <header>
-    <h1>r/IndianRailways Subscribers</h1>
-    <div id="count">—</div>
-  </header>
-
-  <button onclick="updateSubs()">Update Now</button>
-
-  <div class="card">
-    <div class="stats">
-      <div class="stat">
-        <b>Growth Today</b>
-        <div class="val" id="dailyGrowth">0</div>
-        <div class="prev">last 24h</div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Subreddit Stats</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div class="stats-container">
+      <div class="stat-card">
+        <h3>Growth Today</h3>
+        <p id="growth-today" class="stat-value">+0</p>
+        <p class="stat-sub">last 24h</p>
       </div>
-      <div class="stat">
-        <b>Growth This Week</b>
-        <div class="val" id="weeklyGrowth">0</div>
-        <div class="prev">last 7d</div>
+      <div class="stat-card">
+        <h3>Growth This Week</h3>
+        <p id="growth-week" class="stat-value">+0</p>
+        <p class="stat-sub">last 7d</p>
       </div>
-      <div class="stat">
-        <b>Growth This Month</b>
-        <div class="val" id="monthlyGrowth">0</div>
-        <div class="prev">last 30d</div>
+      <div class="stat-card">
+        <h3>Growth This Month</h3>
+        <p id="growth-month" class="stat-value">+0</p>
+        <p class="stat-sub">last 30d</p>
       </div>
-      <div class="stat">
-        <b>Growth This Year</b>
-        <div class="val" id="yearlyGrowth">0</div>
-        <div class="prev">last 12m</div>
+      <div class="stat-card">
+        <h3>Growth This Year</h3>
+        <p id="growth-year" class="stat-value">+0</p>
+        <p class="stat-sub">last 12m</p>
       </div>
     </div>
-    <div id="lastUpdated">Last updated: — (IST)</div>
-  </div>
 
-  <div class="card">
-    <div style="text-align:center"><small class="muted">Graph range</small></div>
-    <div class="tabs" role="tablist" aria-label="Ranges">
-      <button class="tab-btn" data-range="24h">24 Hours</button>
-      <button class="tab-btn" data-range="7d">7 Days</button>
-      <button class="tab-btn" data-range="30d">30 Days</button>
-      <button class="tab-btn active" data-range="12m">12 Months</button>
-    </div>
-    <div class="chart-container">
+    <p class="last-updated">Last updated: <span id="last-updated"></span></p>
+
+    <div class="graph-container">
+      <div class="range-selector">
+        <button onclick="updateChart('24h')">24 Hours</button>
+        <button onclick="updateChart('7d')">7 Days</button>
+        <button onclick="updateChart('30d')">30 Days</button>
+        <button class="active" onclick="updateChart('12m')">12 Months</button>
+      </div>
       <canvas id="growthChart"></canvas>
     </div>
-  </div>
 
-  <div style="text-align:center; color:var(--muted); margin-top:10px;">
-    Data stored in <code>data.json</code> (updated hourly by GitHub Actions). Live fallback always works.
-  </div>
-</div>
+    <script>
+      let chart;
+      let allData = [];
 
-<script>
-const DATA_URL = 'data.json';
-const SUBREDDIT = 'indianrailways';
+      async function fetchData() {
+        const res = await fetch("data.json");
+        const json = await res.json();
+        allData = json.logs
+          .map((entry) => ({
+            time: new Date(entry.time),
+            count: entry.count,
+          }))
+          .sort((a, b) => a.time - b.time);
 
-// Seeded baseline values
-const LATEST_COUNT = 349693;
-const GROWTH_TODAY = 8;
-const GROWTH_WEEK = 1318;
-const GROWTH_MONTH = 5608;
-const GROWTH_YEAR = 105008;
-
-let logs = [];
-let chart = null;
-let currentRange = '12m';
-
-const DAY_MS = 86400000;
-const HOUR_MS = 3600000;
-
-function formatNumberIndian(n){ return new Intl.NumberFormat('en-IN').format(n); }
-function formatGrowth(val){ return (val>=0?'+':'') + formatNumberIndian(val); }
-
-// Load from data.json if available, else simulate realistic data
-async function fetchDataJson(){
-  try {
-    const res = await fetch(DATA_URL + '?t=' + Date.now(), { cache: 'no-store' });
-    if(!res.ok) throw new Error();
-    const json = await res.json();
-    const parsed = (json.logs || []).map(l => ({ time: +l.time, count: +l.count }));
-    parsed.sort((a,b)=>a.time-b.time);
-    if(parsed.some(p => p.count>0)){ logs = simulateMissingData(parsed); return true; }
-    throw new Error();
-  } catch {
-    logs = generateSeedLogs();
-    return false;
-  }
-}
-
-// Generate realistic daily data across 1 year, using seeds
-function generateSeedLogs(){
-  const now = Date.now();
-  const startCount = LATEST_COUNT - GROWTH_YEAR;
-  const arr = [];
-  for(let i=0;i<=365;i++){
-    const t = now - (365 - i) * DAY_MS;
-    const growthFactor = (Math.sin(i/40) * 150) + (i * (GROWTH_YEAR/365)) + startCount;
-    const val = Math.round(growthFactor + Math.random()*50 - 25);
-    arr.push({ time:t, count:val });
-  }
-  arr.push({ time: now, count: LATEST_COUNT });
-  return arr;
-}
-
-// Fill missing gaps realistically if JSON has sparse entries
-function simulateMissingData(data){
-  const filled = [];
-  for(let i=0;i<data.length-1;i++){
-    const a=data[i], b=data[i+1];
-    filled.push(a);
-    const gap=b.time-a.time;
-    if(gap>2*HOUR_MS){
-      const steps=Math.floor(gap/HOUR_MS);
-      for(let j=1;j<steps;j++){
-        const interp=a.count+(b.count-a.count)*(j/steps)+(Math.random()*5-2);
-        filled.push({time:a.time+j*HOUR_MS,count:Math.round(interp)});
+        updateAllStats();
+        updateChart("12m");
       }
-    }
-  }
-  filled.push(data[data.length-1]);
-  return filled;
-}
 
-// Fetch live Reddit subscriber count
-async function fetchLiveCount(){
-  try {
-    const res = await fetch(`https://www.reddit.com/r/${SUBREDDIT}/about.json?raw_json=1`);
-    if(!res.ok) throw new Error();
-    const json = await res.json();
-    return Number(json?.data?.subscribers||0) || null;
-  } catch { return null; }
-}
+      function updateAllStats() {
+        const now = allData[allData.length - 1];
+        const nowTime = now.time.getTime();
 
-// Helper to get nearest value in past timeframe
-function getValueBefore(time){
-  for(let i=logs.length-1;i>=0;i--) if(logs[i].time<=time) return logs[i].count;
-  return logs[0].count;
-}
+        const oneDayAgo = nowTime - 24 * 60 * 60 * 1000;
+        const oneWeekAgo = nowTime - 7 * 24 * 60 * 60 * 1000;
+        const oneMonthAgo = nowTime - 30 * 24 * 60 * 60 * 1000;
+        const oneYearAgo = nowTime - 365 * 24 * 60 * 60 * 1000;
 
-function getLatest(){ return logs[logs.length-1]||{time:Date.now(),count:LATEST_COUNT}; }
+        const todayStart = getNearestCount(oneDayAgo);
+        const weekStart = getNearestCount(oneWeekAgo);
+        const monthStart = getNearestCount(oneMonthAgo);
+        const yearStart = getNearestCount(oneYearAgo);
 
-async function updateSubs(){
-  await fetchDataJson();
-  const live = await fetchLiveCount();
-  if(live){ logs.push({time:Date.now(),count:live}); }
+        const todayGrowth = now.count - todayStart;
+        const weekGrowth = now.count - weekStart;
+        const monthGrowth = now.count - monthStart;
+        const yearGrowth = now.count - yearStart;
 
-  const latest=getLatest().count;
-  document.getElementById('count').textContent=formatNumberIndian(latest);
+        document.getElementById("growth-today").textContent = `+${todayGrowth.toLocaleString()}`;
+        document.getElementById("growth-week").textContent = `+${weekGrowth.toLocaleString()}`;
+        document.getElementById("growth-month").textContent = `+${monthGrowth.toLocaleString()}`;
+        document.getElementById("growth-year").textContent = `+${yearGrowth.toLocaleString()}`;
 
-  const now=Date.now();
-  const oneDayAgo=getValueBefore(now - DAY_MS);
-  const oneWeekAgo=getValueBefore(now - 7*DAY_MS);
-  const oneMonthAgo=getValueBefore(now - 30*DAY_MS);
-  const oneYearAgo=getValueBefore(now - 365*DAY_MS);
+        document.getElementById("last-updated").textContent =
+          new Date(now.time).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+      }
 
-  const growthDay = latest - oneDayAgo;
-  const growthWeek = latest - oneWeekAgo;
-  const growthMonth = latest - oneMonthAgo;
-  const growthYear = latest - oneYearAgo;
-
-  document.getElementById('dailyGrowth').textContent=formatGrowth(growthDay);
-  document.getElementById('weeklyGrowth').textContent=formatGrowth(growthWeek);
-  document.getElementById('monthlyGrowth').textContent=formatGrowth(growthMonth);
-  document.getElementById('yearlyGrowth').textContent=formatGrowth(growthYear);
-
-  document.getElementById('lastUpdated').textContent='Last updated: '+new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
-
-  renderChart();
-}
-
-function renderChart(){
-  const ctx=document.getElementById('growthChart').getContext('2d');
-  const now=Date.now();
-  const range={ '24h':DAY_MS, '7d':7*DAY_MS, '30d':30*DAY_MS, '12m':365*DAY_MS }[currentRange];
-  const start=now-range;
-
-  let filtered=logs.filter(l=>l.time>=start);
-  if(filtered.length===0){
-    filtered=[{time:start,count:getValueBefore(start)},getLatest()];
-  }
-
-  const dataPoints=filtered.map(p=>({x:p.time,y:p.count}));
-  if(chart) chart.destroy();
-
-  chart=new Chart(ctx,{
-    type:'line',
-    data:{
-      datasets:[{
-        data:dataPoints,
-        borderColor:'#4CAF50',
-        borderWidth:2,
-        pointRadius:0,
-        tension:0.25,
-        fill:false
-      }]
-    },
-    options:{
-      responsive:true,
-      maintainAspectRatio:false,
-      animation:false,
-      scales:{
-        x:{
-          type:'time',
-          time:{unit:currentRange==='24h'?'hour':currentRange==='7d'?'day':currentRange==='30d'?'day':'month'},
-          grid:{color:'rgba(255,255,255,0.05)'},
-          ticks:{color:'#aaa'}
-        },
-        y:{
-          ticks:{color:'#aaa',callback:v=>formatNumberIndian(v)},
-          grid:{color:'rgba(255,255,255,0.05)'}
+      function getNearestCount(targetTime) {
+        let nearest = allData[0].count;
+        for (let i = 0; i < allData.length; i++) {
+          if (allData[i].time.getTime() > targetTime) {
+            return allData[i > 0 ? i - 1 : 0].count;
+          }
         }
-      },
-      plugins:{legend:{display:false}}
-    }
-  });
-}
+        return allData[allData.length - 1].count;
+      }
 
-document.querySelectorAll('.tab-btn').forEach(b=>{
-  b.addEventListener('click',()=>{
-    document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active');
-    currentRange=b.dataset.range;
-    renderChart();
-  });
-});
+      function updateChart(range) {
+        let cutoffTime;
+        const now = allData[allData.length - 1].time.getTime();
 
-updateSubs();
-setInterval(updateSubs,60*60*1000);
-</script>
-</body>
+        switch (range) {
+          case "24h":
+            cutoffTime = now - 24 * 60 * 60 * 1000;
+            break;
+          case "7d":
+            cutoffTime = now - 7 * 24 * 60 * 60 * 1000;
+            break;
+          case "30d":
+            cutoffTime = now - 30 * 24 * 60 * 60 * 1000;
+            break;
+          case "12m":
+          default:
+            cutoffTime = now - 365 * 24 * 60 * 60 * 1000;
+            break;
+        }
+
+        const filtered = allData.filter((d) => d.time.getTime() >= cutoffTime);
+
+        const labels =
+          range === "12m"
+            ? filtered.map((d) =>
+                d.time.toLocaleDateString("en-IN", { month: "short", year: "2-digit" })
+              )
+            : filtered.map((d) =>
+                d.time.toLocaleString("en-IN", {
+                  day: "2-digit",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              );
+
+        const counts = filtered.map((d) => d.count);
+
+        if (chart) chart.destroy();
+
+        const ctx = document.getElementById("growthChart").getContext("2d");
+        chart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: "Subscriber Count",
+                data: counts,
+                borderColor: "rgba(0, 255, 0, 0.8)",
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.25,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text:
+                    range === "12m"
+                      ? "Date (Last 12 Months)"
+                      : "Time",
+                  color: "#ccc",
+                },
+                ticks: { color: "#aaa", maxRotation: 0 },
+              },
+              y: {
+                title: {
+                  display: true,
+                  text: "Subscribers",
+                  color: "#ccc",
+                },
+                ticks: { color: "#aaa" },
+              },
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: function (context) {
+                    return `${context.parsed.y.toLocaleString()} subscribers`;
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        document
+          .querySelectorAll(".range-selector button")
+          .forEach((b) => b.classList.remove("active"));
+        document
+          .querySelector(`.range-selector button[onclick="updateChart('${range}')"]`)
+          .classList.add("active");
+      }
+
+      fetchData();
+    </script>
+  </body>
 </html>
