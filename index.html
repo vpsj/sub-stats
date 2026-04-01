@@ -105,12 +105,16 @@ button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; dis
       <button class="tab-btn" data-range="7d">7 Days</button>
       <button class="tab-btn" data-range="30d">30 Days</button>
       <button class="tab-btn active" data-range="12m">12 Months</button>
+      <button class="tab-btn" data-range="proj">Projections</button>
     </div>
     <div class="chart-container">
       <canvas id="growthChart"></canvas>
     </div>
   </div>
-
+<div class="card" id="projectionCard" style="display:none;">
+    <div style="text-align:center"><b>Growth Projections</b></div>
+    <div id="projectionList" style="margin-top:12px;"></div>
+  </div>
   <div style="text-align:center; color:var(--muted); margin-top:10px;">
     Data stored in <code>data.json</code> (updated hourly by GitHub Actions). Live fallback always works.
   </div>
@@ -233,7 +237,62 @@ async function updateSubs(){
 
   renderChart();
 }
+function renderProjections(){
+  const latest = getLatest().count;
+  const now = Date.now();
 
+  const data = logs.slice(-100);
+  if(data.length < 2) return;
+
+  const t0 = data[0].time;
+  let sumX=0,sumY=0,sumXY=0,sumXX=0;
+
+  data.forEach(p=>{
+    const x=(p.time - t0)/DAY_MS;
+    const y=p.count;
+    sumX+=x; sumY+=y; sumXY+=x*y; sumXX+=x*x;
+  });
+
+  const n=data.length;
+  const slope=(n*sumXY - sumX*sumY)/(n*sumXX - sumX*sumX);
+  if(!isFinite(slope) || slope<=0) return;
+
+  const next10k=Math.ceil(latest/10000)*10000;
+
+  let html='<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">';
+  let first=true;
+
+  for(let i=0;i<6;i++){
+    const m=next10k+i*10000;
+    if(m<=latest) continue;
+
+    const days=(m-latest)/slope;
+    const date=new Date(now+days*DAY_MS);
+
+    html+=`
+    <div style="
+      min-width:180px;
+      background:rgba(255,255,255,0.02);
+      padding:14px;
+      border-radius:10px;
+      text-align:center;
+      ${first ? 'border:2px solid #4CAF50;box-shadow:0 0 14px rgba(76,175,80,0.6);' : ''}
+    ">
+      <div style="font-size:1.4rem;font-weight:800">${formatNumberIndian(m)}</div>
+      <div style="color:#4CAF50;margin-top:6px;font-weight:700">
+        ${date.toLocaleDateString('en-IN')}
+      </div>
+      <div style="color:#aaa;font-size:0.85rem">
+        ~${days.toFixed(1)} days
+      </div>
+    </div>`;
+
+    first=false;
+  }
+
+  html+='</div>';
+  document.getElementById('projectionList').innerHTML=html;
+}
 function renderChart(){
   const ctx=document.getElementById('growthChart').getContext('2d');
   const now=Date.now();
@@ -286,7 +345,16 @@ document.querySelectorAll('.tab-btn').forEach(b=>{
     document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
     currentRange=b.dataset.range;
-    renderChart();
+
+if(currentRange==='proj'){
+  document.querySelector('.chart-container').style.display='none';
+  document.getElementById('projectionCard').style.display='block';
+  renderProjections();
+}else{
+  document.querySelector('.chart-container').style.display='block';
+  document.getElementById('projectionCard').style.display='none';
+  renderChart();
+}
   });
 });
 
