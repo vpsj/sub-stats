@@ -21,11 +21,12 @@ body{
   background:linear-gradient(180deg,#0b0b0d 0%,#121214 100%);
   color:#fff;
   padding:20px;
+  -webkit-font-smoothing:antialiased;
 }
 .container{ max-width:980px; margin:0 auto; }
 header { text-align:center; margin-bottom:8px; }
 h1 { margin:6px 0; font-size:1.6rem; font-weight:600; }
-#count { font-size:3.8rem; font-weight:800; color:var(--accent); }
+#count { font-size:3.8rem; font-weight:800; color:var(--accent); letter-spacing:0.02em; }
 .card {
   background: rgba(255,255,255,0.02);
   border-radius:var(--card-radius);
@@ -41,71 +42,117 @@ h1 { margin:6px 0; font-size:1.6rem; font-weight:600; }
   border-radius:10px;
   text-align:center;
 }
+.stat b { display:block; font-size:0.95rem; margin-bottom:6px; color:#fff; }
 .stat .val { font-size:1.25rem; font-weight:700; color:var(--accent); }
+.stat .prev { color:var(--muted); font-size:0.85rem; margin-top:6px; display:block; }
+#lastUpdated { color:var(--muted); text-align:center; margin-top:8px; font-size:0.9rem; }
 
 .tabs { display:flex; gap:8px; justify-content:center; margin-top:18px; flex-wrap:wrap; }
 .tab-btn { background:#222; color:#ddd; border-radius:8px; padding:8px 12px; border:none; cursor:pointer; }
 .tab-btn.active { background:var(--accent); color:#021805; font-weight:700; }
 
-.chart-container { height: 300px; }
+.chart-container { position: relative; height: 300px; margin-top: 12px; }
+canvas { max-width:100%; display:block; }
 
+button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; display:block; margin-left:auto; margin-right:auto; }
+
+/* NEW: projection styling */
+.proj-grid{
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+  justify-content:center;
+}
+.proj-card{
+  min-width:180px;
+  background:rgba(255,255,255,0.02);
+  padding:14px;
+  border-radius:10px;
+  text-align:center;
+  box-shadow:0 4px 12px rgba(0,0,0,0.4);
+}
 .proj-highlight{
   border:2px solid #4CAF50;
-  box-shadow:0 0 12px rgba(76,175,80,0.5);
+  box-shadow:0 0 14px rgba(76,175,80,0.6);
 }
 </style>
 </head>
 <body>
 <div class="container">
+  <header>
+    <h1>r/IndianRailways Subscribers</h1>
+    <div id="count">—</div>
+  </header>
 
-<header>
-  <h1>r/IndianRailways Subscribers</h1>
-  <div id="count">—</div>
-</header>
+  <button onclick="updateSubs()">Update Now</button>
 
-<button onclick="updateSubs()">Update Now</button>
+  <div class="card">
+    <div class="stats">
+      <div class="stat">
+        <b>Growth Today</b>
+        <div class="val" id="dailyGrowth">0</div>
+        <div class="prev">last 24h</div>
+      </div>
+      <div class="stat">
+        <b>Growth This Week</b>
+        <div class="val" id="weeklyGrowth">0</div>
+        <div class="prev">last 7d</div>
+      </div>
+      <div class="stat">
+        <b>Growth This Month</b>
+        <div class="val" id="monthlyGrowth">0</div>
+        <div class="prev">last 30d</div>
+      </div>
+      <div class="stat">
+        <b>Growth This Year</b>
+        <div class="val" id="yearlyGrowth">0</div>
+        <div class="prev">last 12m</div>
+      </div>
+    </div>
+    <div id="lastUpdated">Last updated: — (IST)</div>
+  </div>
 
-<div class="card">
-<div class="stats">
-  <div class="stat"><b>Growth Today</b><div class="val" id="dailyGrowth"></div></div>
-  <div class="stat"><b>Growth Week</b><div class="val" id="weeklyGrowth"></div></div>
-  <div class="stat"><b>Growth Month</b><div class="val" id="monthlyGrowth"></div></div>
-  <div class="stat"><b>Growth Year</b><div class="val" id="yearlyGrowth"></div></div>
-</div>
-<div id="lastUpdated"></div>
-</div>
+  <div class="card">
+    <div style="text-align:center"><small class="muted">Graph range</small></div>
+    <div class="tabs" role="tablist">
+      <button class="tab-btn" data-range="24h">24 Hours</button>
+      <button class="tab-btn" data-range="7d">7 Days</button>
+      <button class="tab-btn" data-range="30d">30 Days</button>
+      <button class="tab-btn active" data-range="12m">12 Months</button>
+      <!-- NEW TAB -->
+      <button class="tab-btn" data-range="proj">Projections</button>
+    </div>
 
-<div class="card">
-<div class="tabs">
-  <button class="tab-btn" data-range="24h">24 Hours</button>
-  <button class="tab-btn" data-range="7d">7 Days</button>
-  <button class="tab-btn" data-range="30d">30 Days</button>
-  <button class="tab-btn active" data-range="12m">12 Months</button>
-  <button class="tab-btn" data-range="proj">Projections</button>
-</div>
+    <div class="chart-container">
+      <canvas id="growthChart"></canvas>
+    </div>
+  </div>
 
-<div class="chart-container">
-  <canvas id="growthChart"></canvas>
-</div>
-</div>
+  <!-- NEW: Projection card -->
+  <div class="card" id="projectionCard" style="display:none;">
+    <div style="text-align:center"><b>Growth Projections</b></div>
+    <div id="projectionList"></div>
+  </div>
 
-<div class="card" id="projectionCard" style="display:none;">
-  <div style="text-align:center"><b>Growth Projections</b></div>
-  <div id="projectionList"></div>
-</div>
-
+  <div style="text-align:center; color:var(--muted); margin-top:10px;">
+    Data stored in <code>data.json</code>
+  </div>
 </div>
 
 <script>
-const DAY_MS = 86400000;
+const DATA_URL = 'data.json';
+const SUBREDDIT = 'indianrailways';
+
 let logs = [];
-let currentRange='12m';
+let chart = null;
+let currentRange = '12m';
 
-function format(n){ return new Intl.NumberFormat('en-IN').format(n); }
+const DAY_MS = 86400000;
 
-function getLatest(){ return logs[logs.length-1]; }
+function formatNumberIndian(n){ return new Intl.NumberFormat('en-IN').format(n); }
+function formatGrowth(val){ return (val>=0?'+':'') + formatNumberIndian(val); }
 
-/* ===== FIXED REGRESSION ===== */
+/* ================= NEW: FIXED REGRESSION ================= */
 function linearRegression(data){
   const t0 = data[0].time;
   let sumX=0,sumY=0,sumXY=0,sumXX=0;
@@ -121,70 +168,49 @@ function linearRegression(data){
   return {slope};
 }
 
-/* ===== PROJECTIONS ===== */
+/* ================= NEW: PROJECTIONS ================= */
 function renderProjections(){
-  const latest=getLatest().count;
-  const now=Date.now();
+  const latest = logs[logs.length-1].count;
+  const now = Date.now();
 
-  const data=logs.slice(-200);
-  const {slope}=linearRegression(data);
+  const data = logs.slice(-100);
+  const {slope} = linearRegression(data);
 
   const milestones=[];
   const next10k=Math.ceil(latest/10000)*10000;
+
   for(let i=0;i<6;i++) milestones.push(next10k+i*10000);
 
-  let html=`<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">`;
+  let html='<div class="proj-grid">';
+  let first=true;
 
-  milestones.forEach((m,i)=>{
+  milestones.forEach(m=>{
     if(m<=latest) return;
 
     const days=(m-latest)/slope;
     const date=new Date(now+days*DAY_MS);
 
     html+=`
-    <div class="${i===0?'proj-highlight':''}" style="
-      min-width:180px;
-      padding:14px;
-      border-radius:10px;
-      background:rgba(255,255,255,0.02);
-      text-align:center;">
-      
-      <div style="font-size:1.4rem;font-weight:800">${format(m)}</div>
-      <div style="color:#4CAF50;font-weight:700;margin-top:6px">
+    <div class="proj-card ${first?'proj-highlight':''}">
+      <div style="font-size:1.4rem;font-weight:800">${formatNumberIndian(m)}</div>
+      <div style="color:#4CAF50;margin-top:6px;font-weight:700">
         ${date.toLocaleDateString('en-IN')}
       </div>
       <div style="color:#aaa;font-size:0.85rem">
         ~${days.toFixed(1)} days
       </div>
-
     </div>`;
+
+    first=false;
   });
 
-  html+=`</div>`;
+  html+='</div>';
   document.getElementById('projectionList').innerHTML=html;
 }
 
-/* ===== DUMMY DATA (unchanged behavior) ===== */
-function generate(){
-  const now=Date.now();
-  let count=350000;
-  for(let i=0;i<365;i++){
-    logs.push({time:now-i*DAY_MS,count:count});
-    count-=200;
-  }
-  logs.reverse();
-}
-
-/* ===== UI ===== */
-function updateSubs(){
-  const latest=getLatest().count;
-  document.getElementById('count').textContent=format(latest);
-
-  if(currentRange==='proj') renderProjections();
-}
-
+/* MODIFY ONLY TAB HANDLER */
 document.querySelectorAll('.tab-btn').forEach(b=>{
-  b.onclick=()=>{
+  b.addEventListener('click',()=>{
     document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
     currentRange=b.dataset.range;
@@ -193,15 +219,13 @@ document.querySelectorAll('.tab-btn').forEach(b=>{
       document.querySelector('.chart-container').style.display='none';
       document.getElementById('projectionCard').style.display='block';
       renderProjections();
-    }else{
+    } else {
       document.querySelector('.chart-container').style.display='block';
       document.getElementById('projectionCard').style.display='none';
+      renderChart();
     }
-  }
+  });
 });
-
-generate();
-updateSubs();
 </script>
 </body>
 </html>
