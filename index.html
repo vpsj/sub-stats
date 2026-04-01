@@ -105,10 +105,17 @@ button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; dis
       <button class="tab-btn" data-range="7d">7 Days</button>
       <button class="tab-btn" data-range="30d">30 Days</button>
       <button class="tab-btn active" data-range="12m">12 Months</button>
+      <button class="tab-btn" data-range="proj">Projections</button>
     </div>
     <div class="chart-container">
       <canvas id="growthChart"></canvas>
     </div>
+  </div>
+
+  <!-- Projection Card -->
+  <div class="card" id="projectionCard" style="display:none;">
+    <div style="text-align:center"><b>Growth Projections (Regression)</b></div>
+    <div id="projectionList" style="margin-top:12px;"></div>
   </div>
 
   <div style="text-align:center; color:var(--muted); margin-top:10px;">
@@ -120,7 +127,6 @@ button { padding:10px 20px; font-size:1rem; cursor:pointer; margin-top:10px; dis
 const DATA_URL = 'data.json';
 const SUBREDDIT = 'indianrailways';
 
-// Seeded baseline values
 const LATEST_COUNT = 349693;
 const GROWTH_TODAY = 8;
 const GROWTH_WEEK = 1318;
@@ -137,7 +143,6 @@ const HOUR_MS = 3600000;
 function formatNumberIndian(n){ return new Intl.NumberFormat('en-IN').format(n); }
 function formatGrowth(val){ return (val>=0?'+':'') + formatNumberIndian(val); }
 
-// Load from data.json if available, else simulate realistic data
 async function fetchDataJson(){
   try {
     const res = await fetch(DATA_URL + '?t=' + Date.now(), { cache: 'no-store' });
@@ -153,7 +158,6 @@ async function fetchDataJson(){
   }
 }
 
-// Generate realistic daily data across 1 year, using seeds
 function generateSeedLogs(){
   const now = Date.now();
   const startCount = LATEST_COUNT - GROWTH_YEAR;
@@ -168,7 +172,6 @@ function generateSeedLogs(){
   return arr;
 }
 
-// Fill missing gaps realistically if JSON has sparse entries
 function simulateMissingData(data){
   const filled = [];
   for(let i=0;i<data.length-1;i++){
@@ -187,7 +190,6 @@ function simulateMissingData(data){
   return filled;
 }
 
-// Fetch live Reddit subscriber count
 async function fetchLiveCount(){
   try {
     const res = await fetch(`https://www.reddit.com/r/${SUBREDDIT}/about.json?raw_json=1`);
@@ -197,13 +199,81 @@ async function fetchLiveCount(){
   } catch { return null; }
 }
 
-// Helper to get nearest value in past timeframe
 function getValueBefore(time){
   for(let i=logs.length-1;i>=0;i--) if(logs[i].time<=time) return logs[i].count;
   return logs[0].count;
 }
 
 function getLatest(){ return logs[logs.length-1]||{time:Date.now(),count:LATEST_COUNT}; }
+
+/* ================= REGRESSION ================= */
+function linearRegression(data){
+  const n = data.length;
+  let sumX=0, sumY=0, sumXY=0, sumXX=0;
+
+  data.forEach((p,i)=>{
+    const x = i;
+    const y = p.count;
+    sumX += x;
+    sumY += y;
+    sumXY += x*y;
+    sumXX += x*x;
+  });
+
+  const slope = (n*sumXY - sumX*sumY) / (n*sumXX - sumX*sumX);
+  const intercept = (sumY - slope*sumX) / n;
+
+  return {slope, intercept};
+}
+
+function renderProjections(){
+  const latest = getLatest().count;
+  const now = Date.now();
+
+  // Use last 60 days
+  const cutoff = now - 60*DAY_MS;
+  const data = logs.filter(l=>l.time>=cutoff);
+
+  if(data.length < 10){
+    document.getElementById('projectionList').innerHTML="Not enough data";
+    return;
+  }
+
+  const {slope} = linearRegression(data);
+
+  if(slope <= 0){
+    document.getElementById('projectionList').innerHTML="Growth not positive";
+    return;
+  }
+
+  const milestones = [];
+  const next10k = Math.ceil(latest/10000)*10000;
+
+  for(let i=0;i<6;i++) milestones.push(next10k + i*10000);
+  milestones.push(Math.ceil(latest/100000)*100000);
+  milestones.push(1000000);
+
+  let html="";
+
+  milestones.forEach(m=>{
+    if(m<=latest) return;
+
+    const days = (m - latest) / slope;
+    const date = new Date(now + days*DAY_MS);
+
+    html += `
+      <div style="padding:10px;border-bottom:1px solid rgba(255,255,255,0.05)">
+        <b>${formatNumberIndian(m)}</b><br>
+        <span style="color:#bbb">
+          ${days.toFixed(1)} days • ${date.toLocaleDateString('en-IN')}
+        </span>
+      </div>
+    `;
+  });
+
+  document.getElementById('projectionList').innerHTML = html;
+}
+/* ============================================ */
 
 async function updateSubs(){
   await fetchDataJson();
@@ -231,7 +301,8 @@ async function updateSubs(){
 
   document.getElementById('lastUpdated').textContent='Last updated: '+new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
 
-  renderChart();
+  if(currentRange === 'proj') renderProjections();
+  else renderChart();
 }
 
 function renderChart(){
@@ -286,7 +357,16 @@ document.querySelectorAll('.tab-btn').forEach(b=>{
     document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
     currentRange=b.dataset.range;
-    renderChart();
+
+    if(currentRange==='proj'){
+      document.querySelector('.chart-container').style.display='none';
+      document.getElementById('projectionCard').style.display='block';
+      renderProjections();
+    } else {
+      document.querySelector('.chart-container').style.display='block';
+      document.getElementById('projectionCard').style.display='none';
+      renderChart();
+    }
   });
 });
 
